@@ -1,0 +1,129 @@
+# 赛博小镇中间件防护体系配置文件
+
+# ============================================================================
+# 第一层: 修复悬空行动 (DanglingActionMiddleware)
+# ============================================================================
+dangling_action:
+  enabled: true
+  timeout_seconds: 10  # 悬空超时时间
+
+# ============================================================================
+# 第二层: 安全策略检查 (GuardrailMiddleware)
+# ============================================================================
+guardrail:
+  enabled: true
+  fail_closed: true  # Provider异常时的行为(true=安全优先,阻止行动)
+  
+  provider:
+    type: "allowlist"  # allowlist / custom
+    
+    # 黑名单模式
+    denied_actions:
+      - "自杀"
+      - "攻击"
+      - "破坏"
+      - "偷窃"
+      - "伤害"
+    
+    denied_locations: []
+    
+    # 白名单模式(可选)
+    # allowed_actions:
+    #   - "工作"
+    #   - "休息"
+    #   - "社交"
+    #   - "探索"
+    #   - "吃饭"
+
+# ============================================================================
+# 第三层: 记忆压缩 (MemorySummarizationMiddleware)
+# ============================================================================
+memory_summarization:
+  enabled: true
+  max_memories: 100  # 最大记忆数量
+  keep_recent: 20  # 保留最近N条记忆
+  importance_threshold: 0.7  # 重要记忆阈值
+
+# ============================================================================
+# 第四层: 限制并发行动 (ConcurrentActionLimitMiddleware)
+# ============================================================================
+concurrent_limit:
+  enabled: true
+  max_concurrent: 10  # 最大并发行动数
+
+# ============================================================================
+# 第五层: 行动异常处理 (ActionErrorHandlingMiddleware)
+# ============================================================================
+error_handling:
+  enabled: true
+  log_errors: true
+  max_error_log: 100  # 最大错误日志数量
+
+# ============================================================================
+# 第六层: 检测循环行为 (LoopDetectionMiddleware)
+# ============================================================================
+loop_detection:
+  enabled: true
+  warn_threshold: 3  # 警告阈值
+  hard_limit: 5  # 强制停止阈值
+  window_size: 20  # 滑动窗口大小
+
+# ============================================================================
+# 第七层: 澄清拦截 (ClarificationMiddleware)
+# ============================================================================
+clarification:
+  enabled: true
+
+# ============================================================================
+# 环境特定配置
+# ============================================================================
+
+# 生产环境
+production:
+  guardrail:
+    enabled: true
+    fail_closed: true
+  memory_summarization:
+    max_memories: 100
+    keep_recent: 20
+  concurrent_limit:
+    max_concurrent: 10
+  loop_detection:
+    warn_threshold: 3
+    hard_limit: 5
+
+# 开发环境
+development:
+  guardrail:
+    enabled: false  # 方便测试
+  memory_summarization:
+    max_memories: 50
+    keep_recent: 10
+  concurrent_limit:
+    max_concurrent: 20  # 更宽松
+  loop_detection:
+    warn_threshold: 2  # 更早警告
+    hard_limit: 4
+
+# 高安全环境
+high_security:
+  guardrail:
+    enabled: true
+    fail_closed: true
+    provider:
+      type: "allowlist"
+      allowed_actions:
+        - "工作"
+        - "休息"
+        - "社交"
+        - "探索"
+        - "吃饭"
+  memory_summarization:
+    max_memories: 50
+    keep_recent: 10
+    importance_threshold: 0.8
+  concurrent_limit:
+    max_concurrent: 5  # 更严格
+  loop_detection:
+    warn_threshold: 2
+    hard_limit: 3

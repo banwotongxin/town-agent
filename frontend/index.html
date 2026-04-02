@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>赛博小镇 V2 - 交互界面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1400px;
+            width: 100%;
+            height: 90vh;
+        }
+
+        .map-container {
+            flex: 2;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-container {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 24px;
+        }
+
+        #townMap {
+            flex: 1;
+            background: #f0f0f0;
+            border-radius: 10px;
+            cursor: crosshair;
+        }
+
+        .controls {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .control-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .control-btn:hover {
+            background: #764ba2;
+            transform: translateY(-2px);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            background: #fafafa;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+
+        .user-message {
+            background: #667eea;
+            color: white;
+            margin-left: auto;
+        }
+
+        .agent-message {
+            background: #e0e0e0;
+            color: #333;
+            margin-right: auto;
+        }
+
+        .message-sender {
+            font-weight: bold;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+
+        .chat-input {
+            display: flex;
+            gap: 10px;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        #messageInput:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .send-btn {
+            padding: 12px 25px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .send-btn:hover {
+            background: #764ba2;
+        }
+
+        .status {
+            padding: 10px;
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .agent-info {
+            padding: 10px;
+            background: #e3f2fd;
+            border-left: 4px solid #2196f3;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                flex-direction: column;
+                height: auto;
+            }
+            
+            .map-container, .chat-container {
+                height: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="map-container">
+            <h1>🏙️ 赛博小镇 V2</h1>
+            <div id="status" class="status">状态: 正在加载...</div>
+            <div id="agentInfo" class="agent-info" style="display: none;"></div>
+            <canvas id="townMap"></canvas>
+            <div class="controls">
+                <button class="control-btn" onclick="moveUp()">⬆️ 上</button>
+                <button class="control-btn" onclick="moveDown()">⬇️ 下</button>
+                <button class="control-btn" onclick="moveLeft()">⬅️ 左</button>
+                <button class="control-btn" onclick="moveRight()">➡️ 右</button>
+                <button class="control-btn" onclick="resetPosition()">🔄 重置位置</button>
+                <button class="control-btn" onclick="refreshAgents()">🔄 刷新角色</button>
+            </div>
+        </div>
+        
+        <div class="chat-container">
+            <h1>💬 对话</h1>
+            <div id="chatMessages" class="chat-messages"></div>
+            <div class="chat-input">
+                <input type="text" id="messageInput" placeholder="输入消息..." onkeypress="handleKeyPress(event)">
+                <button class="send-btn" onclick="sendMessage()">发送</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('townMap');
+        const ctx = canvas.getContext('2d');
+        const statusDiv = document.getElementById('status');
+        const agentInfoDiv = document.getElementById('agentInfo');
+        const chatMessages = document.getElementById('chatMessages');
+        const messageInput = document.getElementById('messageInput');
+
+        let agents = [];
+        let userPosition = { x: 50, y: 50 };
+        let selectedAgent = null;
+        let conversationHistory = [];
+        let userCursor = { visible: true, x: 0, y: 0 };
+
+        const AGENT_COLORS = {
+            '作家': '#e91e63',
+            '医生': '#4caf50',
+            '程序员': '#2196f3',
+            '教师': '#ff9800',
+            '艺术家': '#9c27b0',
+            '工程师': '#00bcd4',
+            '科学家': '#795548',
+            '商人': '#607d8b'
+        };
+
+        const AGENT_ICONS = {
+            '作家': '✒️',
+            '医生': '⚕️',
+            '程序员': '💻',
+            '教师': '📚',
+            '艺术家': '🎨',
+            '工程师': '🔧',
+            '科学家': '🔬',
+            '商人': '💼'
+        };
+
+        const ANIME_CHARACTERS = {
+            '作家': 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=anime%20writer%20character%20cute%20style&image_size=square',
+            '医生': 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=anime%20doctor%20character%20cute%20style&image_size=square',
+            '程序员': 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=anime%20programmer%20character%20cute%20style&image_size=square',
+            '教师': 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=anime%20teacher%20character%20cute%20style&image_size=square',
+            '艺术家': 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=anime%20artist%20character%20cute%20style&image_size=square',
+            '工程师': 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=anime%20engineer%20character%20cute%20style&image_size=square',
+            '科学家': 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=anime%20scientist%20character%20cute%20style&image_size=square',
+            '商人': 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=anime%20businessman%20character%20cute%20style&image_size=square'
+        };
+
+        // 预加载图像
+        const characterImages = {};
+        Object.keys(ANIME_CHARACTERS).forEach(profession => {
+            const img = new Image();
+            img.src = ANIME_CHARACTERS[profession];
+            characterImages[profession] = img;
+        });
+
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth - 40;
+            canvas.height = container.clientHeight - 100;
+            drawMap();
+        }
+
+        function drawMap() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // 绘制背景网格
+            ctx.strokeStyle = '#e0e0e0';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < canvas.width; x += 50) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            for (let y = 0; y < canvas.height; y += 50) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+
+            // 绘制建筑物
+            drawBuildings();
+
+            // 绘制智能体
+            agents.forEach(agent => {
+                drawAgent(agent);
+            });
+
+            // 绘制用户
+            drawUser();
+        }
+
+        function drawBuildings() {
+            const buildings = [
+                { x: 100, y: 100, width: 80, height: 60, name: '图书馆', color: '#795548' },
+                { x: 300, y: 150, width: 100, height: 80, name: '医院', color: '#4caf50' },
+                { x: 500, y: 100, width: 90, height: 70, name: '学校', color: '#ff9800' },
+                { x: 200, y: 300, width: 120, height: 90, name: '科技园', color: '#2196f3' },
+                { x: 450, y: 350, width: 100, height: 80, name: '艺术馆', color: '#9c27b0' }
+            ];
+
+            buildings.forEach(building => {
+                ctx.fillStyle = building.color;
+                ctx.fillRect(building.x, building.y, building.width, building.height);
+                
+                ctx.fillStyle = 'white';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(building.name, building.x + building.width / 2, building.y + building.height / 2);
+            });
+        }
+
+        function drawAgent(agent) {
+            const x = (agent.x / 100) * canvas.width;
+            const y = (agent.y / 100) * canvas.height;
+            const color = AGENT_COLORS[agent.profession] || '#666';
+            const icon = AGENT_ICONS[agent.profession] || '👤';
+
+            // 绘制圆形背景
+            ctx.beginPath();
+            ctx.arc(x, y, 20, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.strokeStyle = selectedAgent === agent ? '#ff0000' : '#333';
+            ctx.lineWidth = selectedAgent === agent ? 3 : 1;
+            ctx.stroke();
+
+            // 绘制二次元图像
+            const img = characterImages[agent.profession];
+            if (img && img.complete) {
+                const size = 30;
+                ctx.drawImage(img, x - size/2, y - size/2, size, size);
+            } else {
+                // 绘制图标作为备选
+                ctx.font = '20px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(icon, x, y);
+            }
+
+            // 绘制名字
+            ctx.fillStyle = '#333';
+            ctx.font = '12px Arial';
+            ctx.fillText(agent.name, x, y + 35);
+        }
+
+        function drawUser() {
+            const x = (userPosition.x / 100) * canvas.width;
+            const y = (userPosition.y / 100) * canvas.height;
+
+            // 绘制光标
+            if (userCursor.visible) {
+                ctx.beginPath();
+                ctx.arc(x, y - 25, 5, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff6b6b';
+                ctx.fill();
+                
+                // 绘制光标箭头
+                ctx.beginPath();
+                ctx.moveTo(x, y - 35);
+                ctx.lineTo(x - 4, y - 29);
+                ctx.lineTo(x + 4, y - 29);
+                ctx.fill();
+            }
+
+            ctx.beginPath();
+            ctx.arc(x, y, 15, 0, Math.PI * 2);
+            ctx.fillStyle = '#ff5722';
+            ctx.fill();
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.font = '16px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('🧑', x, y);
+
+            ctx.fillStyle = '#333';
+            ctx.font = '12px Arial';
+            ctx.fillText('你', x, y + 30);
+        }
+
+        function moveUp() {
+            userPosition.y = Math.max(5, userPosition.y - 5);
+            drawMap();
+            checkProximity();
+        }
+
+        function moveDown() {
+            userPosition.y = Math.min(95, userPosition.y + 5);
+            drawMap();
+            checkProximity();
+        }
+
+        function moveLeft() {
+            userPosition.x = Math.max(5, userPosition.x - 5);
+            drawMap();
+            checkProximity();
+        }
+
+        function moveRight() {
+            userPosition.x = Math.min(95, userPosition.x + 5);
+            drawMap();
+            checkProximity();
+        }
+
+        function resetPosition() {
+            userPosition = { x: 50, y: 50 };
+            drawMap();
+            checkProximity();
+        }
+
+        function checkProximity() {
+            const threshold = 15;
+            let nearbyAgent = null;
+
+            agents.forEach(agent => {
+                const distance = Math.sqrt(
+                    Math.pow(userPosition.x - agent.x, 2) + 
+                    Math.pow(userPosition.y - agent.y, 2)
+                );
+                if (distance < threshold) {
+                    nearbyAgent = agent;
+                }
+            });
+
+            if (nearbyAgent && nearbyAgent !== selectedAgent) {
+                selectedAgent = nearbyAgent;
+                showAgentInfo(nearbyAgent);
+                addSystemMessage(`你遇到了 ${nearbyAgent.name}（${nearbyAgent.profession}）`);
+            } else if (!nearbyAgent && selectedAgent) {
+                selectedAgent = null;
+                hideAgentInfo();
+            }
+
+            drawMap();
+        }
+
+        function showAgentInfo(agent) {
+            agentInfoDiv.style.display = 'block';
+            agentInfoDiv.innerHTML = `
+                <strong>${agent.name}</strong> (${agent.profession})<br>
+                年龄: ${agent.age}<br>
+                性格: ${agent.personality}<br>
+                点击对话按钮开始交流
+            `;
+        }
+
+        function hideAgentInfo() {
+            agentInfoDiv.style.display = 'none';
+        }
+
+        function addSystemMessage(message) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message';
+            msgDiv.style.background = '#fff3cd';
+            msgDiv.style.borderLeft = '4px solid #ffc107';
+            msgDiv.innerHTML = `<div class="message-sender">系统</div>${message}`;
+            chatMessages.appendChild(msgDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function addUserMessage(message) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message user-message';
+            msgDiv.innerHTML = `<div class="message-sender">你</div>${message}`;
+            chatMessages.appendChild(msgDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function addAgentMessage(agentName, message) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = 'message agent-message';
+            msgDiv.innerHTML = `<div class="message-sender">${agentName}</div>${message}`;
+            chatMessages.appendChild(msgDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                sendMessage();
+            }
+        }
+
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message) return;
+
+            if (!selectedAgent) {
+                addSystemMessage('请先移动到某个角色附近！');
+                return;
+            }
+
+            addUserMessage(message);
+            messageInput.value = '';
+
+            // 显示加载状态
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'message loading';
+            loadingDiv.innerHTML = `<div class="message-sender">${selectedAgent.name}</div>正在思考...`;
+            chatMessages.appendChild(loadingDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_input: message,
+                        target_agent_id: selectedAgent.id,
+                        conversation_history: conversationHistory
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error('网络请求失败');
+                }
+
+                const data = await response.json();
+                
+                // 移除加载消息
+                chatMessages.removeChild(loadingDiv);
+                
+                // 添加AI回复
+                addAgentMessage(data.agent_name, data.response);
+                
+                // 更新对话历史
+                conversationHistory = data.conversation_history || [];
+                
+            } catch (error) {
+                chatMessages.removeChild(loadingDiv);
+                addSystemMessage(`错误: ${error.message}`);
+            }
+        }
+
+        async function refreshAgents() {
+            statusDiv.textContent = '状态: 正在刷新角色...';
+            try {
+                const response = await fetch('/api/agents');
+                if (!response.ok) {
+                    throw new Error('获取角色列表失败');
+                }
+                agents = await response.json();
+                statusDiv.textContent = `状态: 已加载 ${agents.length} 个角色`;
+                drawMap();
+                checkProximity();
+            } catch (error) {
+                statusDiv.textContent = `状态: 错误 - ${error.message}`;
+                addSystemMessage(`无法加载角色: ${error.message}`);
+            }
+        }
+
+        // 键盘控制
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'ArrowUp':
+                case 'w':
+                case 'W':
+                    e.preventDefault();
+                    moveUp();
+                    break;
+                case 'ArrowDown':
+                case 's':
+                case 'S':
+                    e.preventDefault();
+                    moveDown();
+                    break;
+                case 'ArrowLeft':
+                case 'a':
+                case 'A':
+                    e.preventDefault();
+                    moveLeft();
+                    break;
+                case 'ArrowRight':
+                case 'd':
+                case 'D':
+                    e.preventDefault();
+                    moveRight();
+                    break;
+            }
+        });
+
+        // 窗口大小改变时重新绘制
+        window.addEventListener('resize', resizeCanvas);
+
+        // 初始化
+        window.onload = function() {
+            resizeCanvas();
+            refreshAgents();
+        };
+    </script>
+</body>
+</html>
