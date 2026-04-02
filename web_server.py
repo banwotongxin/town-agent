@@ -8,6 +8,7 @@ from flask_cors import CORS
 import asyncio
 import os
 from pathlib import Path
+from langchain_core.messages import HumanMessage, AIMessage
 
 app = Flask(__name__)
 CORS(app)
@@ -40,8 +41,15 @@ def load_api_key():
 @app.route('/')
 def index():
     """返回前端页面"""
-    with open('frontend/index.html', 'r', encoding='utf-8') as f:
-        return render_template_string(f.read())
+    try:
+        # 使用绝对路径
+        html_path = BASE_DIR / 'frontend' / 'index.html'
+        with open(html_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return render_template_string(content)
+    except Exception as e:
+        print(f"[ERROR] 读取前端文件失败: {e}")
+        return f"错误: {str(e)}", 500
 
 
 @app.route('/api/agents', methods=['GET'])
@@ -108,34 +116,56 @@ def chat():
     """与角色对话"""
     global town_instance
     
+    print("[API] 接收到对话请求")
+    
     if town_instance is None:
+        print("[ERROR] 小镇未初始化")
         return jsonify({'error': '小镇未初始化'}), 500
     
-    data = request.get_json()
-    user_input = data.get('user_input', '')
-    target_agent_id = data.get('target_agent_id', '')
-    conversation_history = data.get('conversation_history', [])
-    
     try:
+        data = request.get_json()
+        print(f"[API] 请求数据: {data}")
+        
+        user_input = data.get('user_input', '')
+        target_agent_id = data.get('target_agent_id', '')
+        conversation_history = data.get('conversation_history', [])
+        
+        print(f"[API] 用户输入: {user_input}")
+        print(f"[API] 目标角色: {target_agent_id}")
+        print(f"[API] 对话历史长度: {len(conversation_history)}")
+        
         # 调用小镇的chat方法
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
+            print("[API] 调用小镇chat方法")
             result = loop.run_until_complete(town_instance.chat(
                 user_input=user_input,
                 target_agent_id=target_agent_id,
                 conversation_history=conversation_history
             ))
+            print(f"[API] 聊天结果: {result}")
         finally:
             loop.close()
+        
+        # 将对话历史中的 Message 对象转换为可序列化的字典
+        serializable_history = []
+        for msg in result['conversation_history']:
+            if isinstance(msg, HumanMessage):
+                serializable_history.append({'role': 'user', 'content': msg.content})
+            elif isinstance(msg, AIMessage):
+                serializable_history.append({'role': 'assistant', 'content': msg.content})
+            elif isinstance(msg, dict):
+                serializable_history.append(msg)
         
         return jsonify({
             'response': result['response'],
             'agent_id': result['agent_id'],
             'agent_name': result['agent_name'],
-            'conversation_history': result['conversation_history']
+            'conversation_history': serializable_history
         })
     except Exception as e:
+        print(f"[ERROR] 对话失败: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -174,22 +204,31 @@ def check_env():
 
 
 if __name__ == '__main__':
-    # 检查环境配置
-    if not check_env():
-        print("环境配置错误，退出程序")
-        exit(1)
-    
-    # 初始化小镇
-    print("初始化小镇...")
     try:
-        initialize_town()
+        # 检查环境配置
+        print("=== 开始启动赛博小镇 V2 ===")
+        if not check_env():
+            print("环境配置错误，退出程序")
+            exit(1)
+        
+        # 初始化小镇
+        print("初始化小镇...")
+        try:
+            initialize_town()
+            print("小镇初始化成功！")
+        except Exception as e:
+            print(f"初始化小镇失败: {e}")
+            import traceback
+            traceback.print_exc()
+            exit(1)
+        
+        print(f"赛博小镇 V2 服务器启动在 http://0.0.0.0:8888")
+        print(f"前端页面: http://localhost:8888")
+        print("按 Ctrl+C 停止服务器")
+        
+        # 开启调试模式以查看详细错误
+        app.run(host='0.0.0.0', port=8888, debug=True, use_reloader=False)
     except Exception as e:
-        print(f"初始化小镇失败: {e}")
+        print(f"服务器启动失败: {e}")
         import traceback
         traceback.print_exc()
-        exit(1)
-    
-    print(f"赛博小镇 V2 服务器启动在 http://0.0.0.0:5000")
-    print(f"前端页面: http://localhost:5000")
-    
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)

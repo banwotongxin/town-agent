@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Any
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 import uuid
 
-from agents.models import AgentProfile
+from AI.agents.models import AgentProfile
 
 
 class BaseAgent:

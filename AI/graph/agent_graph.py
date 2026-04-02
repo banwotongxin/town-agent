@@ -7,10 +7,10 @@ from typing import TypedDict, List, Dict, Optional, Any
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 import asyncio
 
-from agents.base_agent import BaseAgent
-from memory.dual_memory import DualMemorySystem
-from skills.skill_system import SkillRegistry
-from emotion.emotion_engine import EmotionEngine, EmotionLevel
+from AI.agents.base_agent import BaseAgent
+from AI.memory.dual_memory import DualMemorySystem
+from AI.skills.skill_system import SkillRegistry
+from AI.emotion.emotion_engine import EmotionEngine, EmotionLevel
 
 
 class AgentState(TypedDict):

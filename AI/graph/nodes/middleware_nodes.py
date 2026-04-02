@@ -4,7 +4,7 @@
 """
 
 from typing import Dict, Any
-from middleware.base import MiddlewarePhase, MiddlewareContext
+from AI.middleware.base import MiddlewarePhase, MiddlewareContext
 
 
 async def middleware_pre_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -13,7 +13,7 @@ async def middleware_pre_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
     - 修复悬空工具调用
     - 安全策略检查
     """
-    from middleware.factory import create_default_middleware_manager
+    from AI.middleware.factory import create_default_middleware_manager
     
     # 创建中间件管理器
     middleware_manager = create_default_middleware_manager()
@@ -43,7 +43,7 @@ async def middleware_tool_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
     - 子代理限制
     - 异常处理
     """
-    from middleware.factory import create_default_middleware_manager
+    from AI.middleware.factory import create_default_middleware_manager
     
     # 创建中间件管理器
     middleware_manager = create_default_middleware_manager()
@@ -73,7 +73,7 @@ async def middleware_post_check_node(state: Dict[str, Any]) -> Dict[str, Any]:
     - 检测循环
     - 澄清拦截
     """
-    from middleware.factory import create_default_middleware_manager
+    from AI.middleware.factory import create_default_middleware_manager
     
     # 创建中间件管理器
     middleware_manager = create_default_middleware_manager()

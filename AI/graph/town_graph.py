@@ -7,11 +7,11 @@ from typing import TypedDict, List, Dict, Optional, Any
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 import asyncio
 
-from graph.agent_graph import AgentGraph, AgentState
-from agents.base_agent import BaseAgent
-from memory.dual_memory import DualMemorySystem, create_memory_system
-from skills.skill_system import SkillRegistry, get_skill_registry
-from emotion.emotion_engine import EmotionEngine, get_emotion_engine
+from AI.graph.agent_graph import AgentGraph, AgentState
+from AI.agents.base_agent import BaseAgent
+from AI.memory.dual_memory import DualMemorySystem, create_memory_system
+from AI.skills.skill_system import SkillRegistry, get_skill_registry
+from AI.emotion.emotion_engine import EmotionEngine, get_emotion_engine
 
 
 class TownState(TypedDict):
@@ -352,8 +352,8 @@ async def create_default_town(num_agents: int = 4) -> TownOrchestrator:
     Returns:
         TownOrchestrator 实例
     """
-    from agents.models import DEFAULT_PROFILES, Profession
-    from agents.base_agent import BaseAgent
+    from AI.agents.models import DEFAULT_PROFILES, Profession
+    from AI.agents.base_agent import BaseAgent
     
     orchestrator = TownOrchestrator(town_name="赛博小镇")
     
