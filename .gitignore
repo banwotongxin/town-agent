@@ -17,8 +17,8 @@ dist/
 .DS_Store
 Thumbs.db
 __pycache__/
+# 日志
 *.log
-
 # 测试
 .pytest_cache/
 test_*

@@ -1,0 +1,51 @@
+# 安全规则配置文件
+
+# 输入黑名单 - 危险操作和敏感信息
+input_blacklist:
+  - 'rm\s+-rf'
+  - 'sudo'
+  - 'chmod\s+777'
+  - 'eval\('
+  - 'exec\('
+  - 'system\('
+  - '\/etc\/passwd'
+  - '\/etc\/shadow'
+  - 'API_KEY'
+  - 'SECRET_KEY'
+  - 'password'
+  - 'token'
+
+# 输出黑名单 - 敏感信息
+output_blacklist:
+  - 'API_KEY'
+  - 'SECRET_KEY'
+  - 'password'
+  - 'token'
+  - 'private_key'
+  - 'secret'
+
+# 工具权限配置
+tool_permissions:
+  read_file:
+    enabled: true
+    level: 'read-only'
+  write_file:
+    enabled: true
+    level: 'read-write'
+  ls:
+    enabled: true
+    level: 'read-only'
+  bash:
+    enabled: false
+    level: 'execute'
+  run_command:
+    enabled: false
+    level: 'execute'
+
+# 写操作工具列表
+write_tools:
+  - 'write_file'
+  - 'append_file'
+  - 'delete_file'
+  - 'mkdir'
+  - 'rmdir'

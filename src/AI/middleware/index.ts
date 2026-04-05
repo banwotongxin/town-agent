@@ -11,3 +11,5 @@ export * from './factory';        // 导出中间件工厂
 export * from './guardrail';      // 导出护栏中间件
 export * from './loop_detection'; // 导出循环检测中间件
 export * from './memory_summarization'; // 导出记忆总结中间件
+export * from './tool_permission'; // 导出工具权限校验中间件
+export * from './write_approval'; // 导出写操作审批中间件

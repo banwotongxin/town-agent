@@ -6,7 +6,10 @@
 // 导入必要的类型和类
 import { LongTermMemoryInterface, MemoryItem, MemoryItemImpl } from './dual_memory';
 import { ChromaClient, Collection } from 'chromadb';
-import { DefaultEmbeddingFunction } from '@chroma-core/default-embed';
+import { QwenEmbedding } from './modules/embedding';
+import { TextChunker } from './modules/text_chunker';
+import { QuestionRewriter } from './modules/question_rewriter';
+import { Reranker } from './modules/reranker';
 
 /**
  * ChromaLongTermMemory类 - 使用ChromaDB向量数据库存储长期记忆
@@ -21,6 +24,14 @@ export class ChromaLongTermMemory implements LongTermMemoryInterface {
   private collectionName: string;
   // 代理ID
   private agentId: string;
+  // 向量化工具
+  private embedder: any;
+  // 文本分块工具
+  private chunker: TextChunker;
+  // 问题改写工具
+  private rewriter: QuestionRewriter;
+  // 精排工具
+  private reranker: Reranker;
 
   /**
    * 构造函数
@@ -35,6 +46,11 @@ export class ChromaLongTermMemory implements LongTermMemoryInterface {
     this.collectionName = `${collectionName}_${agentId}`;
     // 创建ChromaDB客户端实例，使用内存模式（避免路径配置问题）
     this.client = new ChromaClient();
+    // 初始化工具
+    this.embedder = new QwenEmbedding();
+    this.chunker = new TextChunker();
+    this.rewriter = new QuestionRewriter();
+    this.reranker = new Reranker();
   }
 
   /**
@@ -47,8 +63,7 @@ export class ChromaLongTermMemory implements LongTermMemoryInterface {
         this.collection = await this.client.getCollection({ name: this.collectionName });
       } catch (error) {
         // 如果集合不存在，创建新集合
-        const embedder = new DefaultEmbeddingFunction();
-        this.collection = await this.client.createCollection({ name: this.collectionName, embeddingFunction: embedder });
+        this.collection = await this.client.createCollection({ name: this.collectionName });
       }
     }
   }
@@ -64,22 +79,35 @@ export class ChromaLongTermMemory implements LongTermMemoryInterface {
     // 初始化集合
     await this.initializeCollection();
     
-    // 创建记忆项实例
-    const memory = new MemoryItemImpl(undefined, content, importance, undefined, metadata);
+    // 分块处理
+    const chunks = this.chunker.chunk(content);
+    
+    if (chunks.length === 0) {
+      const memory = new MemoryItemImpl(undefined, content, importance, undefined, metadata);
+      return memory.id;
+    }
+    
+    // 向量化
+    const embeddings = await this.embedder.embed(chunks);
+    
+    // 准备数据
+    const ids = chunks.map((_, index) => `id_${Date.now()}_${index}`);
+    const metadatas = chunks.map(() => ({
+      importance,
+      timestamp: Date.now() / 1000,
+      ...(metadata || {})
+    }));
     
     // 向集合添加记忆
     await this.collection!.add({
-      ids: [memory.id], // 记忆ID
-      documents: [memory.content], // 记忆内容
-      metadatas: [{
-        importance: memory.importance, // 重要性
-        timestamp: memory.timestamp, // 时间戳
-        ...(metadata || {}) // 合并额外元数据
-      }]
+      ids,
+      documents: chunks,
+      embeddings,
+      metadatas
     });
     
-    // 返回记忆ID
-    return memory.id;
+    // 返回第一个记忆ID
+    return ids[0];
   }
 
   /**
@@ -93,33 +121,63 @@ export class ChromaLongTermMemory implements LongTermMemoryInterface {
     // 初始化集合
     await this.initializeCollection();
     
-    // 使用ChromaDB的查询功能，基于语义相似度搜索
-    const results = await this.collection!.query({ queryTexts: [query], nResults: topK });
+    // 1. 问题改写
+    const rewrittenQueries = await this.rewriter.rewriteQuestion(query);
     
-    // 处理搜索结果
-    const memories: MemoryItem[] = [];
-    for (let i = 0; i < results.documents.length; i++) {
-      const docArray = results.documents[i];
-      if (docArray) {
-        for (let j = 0; j < docArray.length; j++) {
-          const content = docArray[j];
-          if (content) {
-            // 获取元数据
-            const metadata = (results.metadatas[i] && results.metadatas[i][j]) || {};
-            // 获取ID
-            const id = results.ids[i]?.[j] || `id_${Date.now()}_${i}_${j}`;
-            // 创建记忆项
-            memories.push(new MemoryItemImpl(
-              id.toString(),
-              content,
-              typeof metadata.importance === 'number' ? metadata.importance : 0.5,
-              typeof metadata.timestamp === 'number' ? metadata.timestamp : Date.now() / 1000, metadata
-            ));
+    // 2. 向量化所有查询
+    const queryEmbeddings = await this.embedder.embed(rewrittenQueries);
+    
+    // 3. 检索所有查询的结果
+    const allResults: MemoryItem[] = [];
+    for (const embedding of queryEmbeddings) {
+      // 确保 embedding 是有效的数字数组
+      if (!Array.isArray(embedding) || embedding.length === 0 || !embedding.every(n => typeof n === 'number')) {
+        console.warn('Invalid embedding format, skipping query');
+        continue;
+      }
+      
+      try {
+        const results = await this.collection!.query({
+          queryEmbeddings: [embedding],
+          nResults: topK
+        });
+      
+        // 处理搜索结果
+        for (let i = 0; i < results.documents.length; i++) {
+          const docArray = results.documents[i];
+          if (docArray) {
+            for (let j = 0; j < docArray.length; j++) {
+              const content = docArray[j];
+              if (content) {
+                const metadata = (results.metadatas[i] && results.metadatas[i][j]) || {};
+                const id = results.ids[i]?.[j] || `id_${Date.now()}_${i}_${j}`;
+                const score = results.distances[i]?.[j] || 0;
+                
+                // 检查重要性阈值
+                const importance = typeof metadata.importance === 'number' ? metadata.importance : 0.5;
+                if (importance >= minImportance) {
+                  allResults.push(new MemoryItemImpl(
+                    id.toString(),
+                    content,
+                    importance,
+                    typeof metadata.timestamp === 'number' ? metadata.timestamp : Date.now() / 1000,
+                    { ...metadata, score }
+                  ));
+                }
+              }
+            }
           }
         }
+      } catch (error) {
+        console.warn('ChromaDB query failed:', error instanceof Error ? error.message : error);
       }
     }
-    return memories;
+    
+    // 4. 去重
+    const uniqueResults = this.deduplicateResults(allResults);
+    
+    // 5. 精排
+    return this.reranker.rerank(query, uniqueResults, topK);
   }
 
   /**
@@ -171,5 +229,20 @@ export class ChromaLongTermMemory implements LongTermMemoryInterface {
     
     // 删除所有记忆
     await this.collection!.delete({ ids: undefined });
+  }
+
+  /**
+   * 结果去重
+   */
+  private deduplicateResults(results: MemoryItem[]): MemoryItem[] {
+    const seen = new Set<string>();
+    return results.filter(item => {
+      const key = item.content.trim();
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
   }
 }

@@ -1,35 +1,82 @@
-/**
- * 护栏中间件
- * 用于检测和过滤违规内容，确保智能体的行为符合规范
- */
 import { BaseMiddleware, MiddlewareContext, MiddlewareResult } from './base';
+import { SecurityConfig } from '../../security/config';
+import { SecurityLogger } from '../../security/logger';
 
 export class GuardrailMiddleware extends BaseMiddleware {
-  /**
-   * 构造函数
-   */
+  private config: SecurityConfig;
+  private logger: SecurityLogger;
+
   constructor() {
     super("GuardrailMiddleware");
+    this.config = new SecurityConfig();
+    this.logger = new SecurityLogger();
   }
 
-  /**
-   * 处理方法
-   * 检查是否有违规内容
-   * @param context 中间件上下文
-   * @param agent 智能体实例
-   * @returns 中间件结果
-   */
   process(context: MiddlewareContext, agent: any): MiddlewareResult {
-    // 检查是否有违规内容
-    // 这里可以实现内容审核的逻辑，例如：
-    // 1. 检测敏感词汇
-    // 2. 检测不当内容
-    // 3. 检测安全风险
-    
-    // 目前是一个空实现，返回继续执行
+    if (context.action) {
+      if (this._detectPathTraversal(context.action)) {
+        this.logger.warn('PATH遍历攻击检测', { action: context.action, agent_id: context.agent_id });
+        return {
+          should_continue: false,
+          message: "安全警告：检测到路径遍历攻击",
+          metadata: { blocked: true, reason: "path_traversal" }
+        };
+      }
+
+      if (this._detectBlacklistedInput(context.action)) {
+        this.logger.warn('黑名单输入检测', { action: context.action, agent_id: context.agent_id });
+        return {
+          should_continue: false,
+          message: "安全警告：检测到危险操作",
+          metadata: { blocked: true, reason: "blacklisted_input" }
+        };
+      }
+    }
+
+    if (context.action_result) {
+      const filteredResult = this._filterBlacklistedOutput(context.action_result);
+      if (filteredResult !== context.action_result) {
+        this.logger.info('输出敏感信息过滤', { agent_id: context.agent_id });
+        return {
+          should_continue: true,
+          modified_action: context.action,
+          metadata: { filtered: true }
+        };
+      }
+    }
+
     return {
       should_continue: true,
       metadata: {}
     };
+  }
+
+  private _detectPathTraversal(input: string): boolean {
+    const pathTraversalPatterns = [
+      /\.\.\//g,
+      /\.\.\\/g,
+      /\/\.\./g,
+      /\\\.\./g,
+      /%2e%2e%2f/i,
+      /%2e%2e%5c/i,
+    ];
+
+    return pathTraversalPatterns.some(pattern => pattern.test(input));
+  }
+
+  private _detectBlacklistedInput(input: string): boolean {
+    const blacklistedPatterns = this.config.getInputBlacklist();
+    return blacklistedPatterns.some(pattern => new RegExp(pattern).test(input));
+  }
+
+  private _filterBlacklistedOutput(output: string): string {
+    let filtered = output;
+    const blacklistedPatterns = this.config.getOutputBlacklist();
+    
+    blacklistedPatterns.forEach(pattern => {
+      filtered = filtered.replace(new RegExp(pattern, 'g'), '[REDACTED]');
+    });
+
+    return filtered;
   }
 }

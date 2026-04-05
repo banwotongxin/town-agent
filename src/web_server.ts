@@ -126,12 +126,23 @@ function loadApiKey(): string | null {
   try {
     const content = fs.readFileSync(envPath, 'utf-8');
     const lines = content.split('\n');
+    let deepseekKey: string | null = null;
     for (const line of lines) {
       const trimmedLine = line.trim();
       if (trimmedLine.startsWith('DEEPSEEK_API_KEY=')) {
-        return trimmedLine.split('=', 2)[1];
+        deepseekKey = trimmedLine.split('=', 2)[1];
+      } else if (trimmedLine.startsWith('HUGGINGFACE_API_KEY=')) {
+        // 同时加载Hugging Face API密钥到环境变量
+        process.env.HUGGINGFACE_API_KEY = trimmedLine.split('=', 2)[1];
+      } else if (trimmedLine.startsWith('QWEN_API_KEY=')) {
+        // 加载Qwen API密钥到环境变量
+        process.env.QWEN_API_KEY = trimmedLine.split('=', 2)[1];
+      } else if (trimmedLine.startsWith('QWEN_BASE_URL=')) {
+        // 加载Qwen Base URL到环境变量
+        process.env.QWEN_BASE_URL = trimmedLine.split('=', 2)[1];
       }
     }
+    return deepseekKey;
   } catch (e) {
     console.error(`[ERROR] 读取 .env 文件失败:`, e);
   }

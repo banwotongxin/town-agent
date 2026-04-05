@@ -375,9 +375,8 @@ export class LongTermMemory implements LongTermMemoryInterface {
 export class DualMemorySystem {
   private agentId: string; // 智能体ID
   private shortTerm: ShortTermMemory; // 短期记忆
-  private longTerm: LongTermMemoryInterface; // 长期记忆
+  private longTerm: LongTermMemoryInterface; // 长期记忆（知识库）
   private sessionMemory: SessionMemory; // 会话记忆
-  private importanceThreshold: number; // 重要性阈值
 
   /**
    * 构造函数
@@ -392,10 +391,9 @@ export class DualMemorySystem {
   ) {
     this.agentId = agentId;
     this.shortTerm = new ShortTermMemory(shortTermWindow);
-    // 使用ChromaDB作为长期记忆存储
+    // 使用ChromaDB作为知识库存储
     this.longTerm = new ChromaLongTermMemory(agentId, "long_term_memory", longTermStoragePath);
     this.sessionMemory = new SessionMemory(agentId, longTermStoragePath);
-    this.importanceThreshold = 0.6;
   }
 
   /**
@@ -409,75 +407,18 @@ export class DualMemorySystem {
   /**
    * 添加消息
    * @param message 消息对象
-   * @param evaluateImportance 是否评估重要性（默认true）
    */
-  async addMessage(
-    message: BaseMessage,
-    evaluateImportance: boolean = true
-  ): Promise<void> {
+  async addMessage(message: BaseMessage): Promise<void> {
+    // 只添加到短期记忆
     this.shortTerm.addMessage(message);
 
-    if (evaluateImportance && (message.type === 'human' || message.type === 'ai')) {
-      const importance = this.evaluateImportance(message.content);
-
-      if (importance >= this.importanceThreshold) {
-        await this.longTerm.addMemory(
-          message.content,
-          importance,
-          {
-            type: message.type,
-            agent_id: this.agentId
-          }
-        );
-      }
-    }
-
-    // 检查是否需要提取会话记忆
+    // 检查是否需要提取会话记忆（会自动保存到 Session Memory）
     const messages = this.shortTerm.getMessages();
     const tokenCount = this.calculateTokenCount(messages);
     if (this.sessionMemory.shouldExtractMemory(messages, tokenCount)) {
-      // 等待提取记忆以确保数据一致性
       await this.sessionMemory.extractMemory(messages);
+      console.log('[记忆] 已提取并更新会话记忆');
     }
-  }
-
-  /**
-   * 评估重要性
-   * @param content 内容
-   * @returns 重要性分数（0-1）
-   */
-  private evaluateImportance(content: string): number {
-    // 支持中英文关键词
-    const importantKeywords = [
-      // 中文
-      "重要", "记住", "关键", "决定", "承诺", "秘密", "必须", "一定要",
-      // 英文
-      "important", "remember", "key", "critical", "decision", "promise", "secret", "must"
-    ];
-
-    const contentLower = content.toLowerCase();
-    let score = 0.3; // 基础分数
-
-    for (const keyword of importantKeywords) {
-      if (contentLower.includes(keyword.toLowerCase())) {
-        score += 0.15;
-      }
-    }
-
-    // 额外评分因素
-    const hasNumbers = /\d+/.test(content);
-    const hasUrls = /https?:\/\/|www\./.test(content);
-    const hasCode = /```|function |class |const |let |var /.test(content);
-
-    if (hasNumbers) score += 0.05;
-    if (hasUrls) score += 0.1;
-    if (hasCode) score += 0.15;
-
-    // 内容长度因素（较长的消息往往更重要）
-    if (content.length > 200) score += 0.05;
-    if (content.length > 500) score += 0.1;
-
-    return Math.min(score, 1.0);
   }
 
   /**
@@ -495,25 +436,30 @@ export class DualMemorySystem {
    * @param includeLongTerm 是否包含长期记忆（默认true）
    * @returns 上下文字符串
    */
-  async getContext(
-    query?: string,
-    includeLongTerm: boolean = true
-  ): Promise<string> {
+  async getContext(query?: string): Promise<string> {
     const contextParts: string[] = [];
 
+    // 1. 短期记忆（当前窗口）
     const shortTermContext = this.shortTerm.getContext();
     if (shortTermContext) {
       contextParts.push(shortTermContext);
     }
 
-    if (includeLongTerm && query) {
+    // 2. 会话记忆（历史对话摘要）
+    const sessionMemory = this.sessionMemory.getSessionMemory();
+    if (sessionMemory) {
+      contextParts.push(`\n[会话记忆 - 历史对话摘要]\n${sessionMemory}`);
+    }
+
+    // 3. 知识库（专业知识）
+    if (query) {
       const relevantMemories = await this.longTerm.search(query, 3);
 
       if (relevantMemories.length > 0) {
         const memoriesText = relevantMemories.map(mem => {
           return `- ${mem.content} (重要性：${mem.importance.toFixed(2)})`;
         }).join('\n');
-        contextParts.push(`\n[相关长期记忆]\n${memoriesText}`);
+        contextParts.push(`\n[相关知识库]\n${memoriesText}`);
       }
     }
 
@@ -563,8 +509,7 @@ export class DualMemorySystem {
     return {
       agent_id: this.agentId,
       short_term: this.shortTerm.getState(),
-      long_term_count: await this.longTerm.count(),
-      importance_threshold: this.importanceThreshold
+      long_term_count: await this.longTerm.count()
     };
   }
 

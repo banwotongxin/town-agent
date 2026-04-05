@@ -11,9 +11,12 @@
   },
   "dependencies": {
     "@chroma-core/default-embed": "^0.1.9",
+    "@huggingface/transformers": "^4.0.1",
+    "@qwen-code/sdk": "^0.1.6",
     "body-parser": "^1.20.2",
     "chromadb": "^3.4.0",
     "cors": "^2.8.5",
+    "dotenv": "^17.4.0",
     "express": "^4.18.2",
     "pg": "^8.11.3",
     "tiktoken": "^1.0.13",

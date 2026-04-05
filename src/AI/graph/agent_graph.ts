@@ -114,8 +114,8 @@ export class AgentGraph {
    * @returns 更新后的状态
    */
   async queryMemoryNode(state: AgentState): Promise<AgentState> {
-    const context = this.memory.getContext(state.user_input);
-    state.memory_context = await context;
+    const context = await this.memory.getContext(state.user_input);
+    state.memory_context = context;
     return state;
   }
 
@@ -221,13 +221,9 @@ ${styleHint}
    * @returns 更新后的状态
    */
   async saveMemoryNode(state: AgentState): Promise<AgentState> {
-    // 保存用户输入
-    this.memory.addMessage(new HumanMessage(state.user_input));
-
-    // 保存智能体响应
-    if (state.agent_response) {
-      this.memory.addMessage(new AIMessage(state.agent_response));
-    }
+    // 不再将对话保存到长期记忆（ChromaDB）
+    // 对话历史由 Session Memory 管理
+    console.log(`[记忆] 对话已保存到会话记忆，未存入长期记忆`);
 
     return state;
   }
