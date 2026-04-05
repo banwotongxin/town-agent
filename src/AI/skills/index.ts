@@ -1,1 +1,5 @@
-export * from './skill_system';
+/**
+ * 技能模块导出文件
+ * 导出技能系统的所有模块，方便其他模块统一导入
+ */
+export * from './skill_system'; // 导出技能系统的所有模块

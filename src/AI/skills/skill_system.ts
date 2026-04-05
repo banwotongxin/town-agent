@@ -1,18 +1,39 @@
+/**
+ * 技能系统模块
+ * 用于管理智能体的各种技能，包括技能注册、加载和执行
+ */
 import * as fs from 'fs';
 import * as path from 'path';
 
+/**
+ * 技能清单接口
+ * 定义技能的元数据和行为
+ */
 export interface SkillManifest {
-  name: string;
-  description: string;
-  trigger_keywords: string[];
-  trigger_intent?: string;
-  mcp_dependencies: any[];
-  system_prompt_enhancement: string;
-  parameters: Record<string, any>;
-  toDict(): Record<string, any>;
+  name: string;                // 技能名称
+  description: string;         // 技能描述
+  trigger_keywords: string[];  // 触发关键词
+  trigger_intent?: string;     // 触发意图（可选）
+  mcp_dependencies: any[];     // MCP依赖
+  system_prompt_enhancement: string; // 系统提示增强
+  parameters: Record<string, any>; // 参数
+  toDict(): Record<string, any>; // 转换为字典
 }
 
+/**
+ * 技能清单实现类
+ */
 export class SkillManifestImpl implements SkillManifest {
+  /**
+   * 构造函数
+   * @param name 技能名称
+   * @param description 技能描述
+   * @param trigger_keywords 触发关键词
+   * @param trigger_intent 触发意图（可选）
+   * @param mcp_dependencies MCP依赖
+   * @param system_prompt_enhancement 系统提示增强
+   * @param parameters 参数
+   */
   constructor(
     public name: string,
     public description: string,
@@ -23,6 +44,10 @@ export class SkillManifestImpl implements SkillManifest {
     public parameters: Record<string, any> = {}
   ) {}
 
+  /**
+   * 转换为字典
+   * @returns 技能清单的字典表示
+   */
   toDict(): Record<string, any> {
     return {
       name: this.name,
@@ -35,12 +60,22 @@ export class SkillManifestImpl implements SkillManifest {
     };
   }
 
+  /**
+   * 从YAML文件加载技能清单
+   * @param yamlPath YAML文件路径
+   * @returns 技能清单实例
+   */
   static fromYaml(yamlPath: string): SkillManifest {
     // 这里需要实现从YAML文件加载的逻辑
     // 暂时返回一个默认实例
     return new SkillManifestImpl("", "");
   }
 
+  /**
+   * 从字典加载技能清单
+   * @param data 字典数据
+   * @returns 技能清单实例
+   */
   static fromDict(data: Record<string, any>): SkillManifest {
     return new SkillManifestImpl(
       data.name || "",
@@ -54,21 +89,35 @@ export class SkillManifestImpl implements SkillManifest {
   }
 }
 
+/**
+ * 基础技能类
+ * 所有技能的基类
+ */
 export class BaseSkill {
-  protected manifest: SkillManifest;
-  protected isLoaded: boolean;
-  protected mcpClients: any[];
+  protected manifest: SkillManifest; // 技能清单
+  protected isLoaded: boolean;       // 是否加载
+  protected mcpClients: any[];       // MCP客户端
 
+  /**
+   * 构造函数
+   * @param manifest 技能清单
+   */
   constructor(manifest: SkillManifest) {
     this.manifest = manifest;
     this.isLoaded = false;
     this.mcpClients = [];
   }
 
+  /**
+   * 初始化技能
+   */
   async initialize(): Promise<void> {
     this.isLoaded = true;
   }
 
+  /**
+   * 清理技能
+   */
   async cleanup(): Promise<void> {
     this.isLoaded = false;
     for (const client of this.mcpClients) {
@@ -79,6 +128,11 @@ export class BaseSkill {
     this.mcpClients = [];
   }
 
+  /**
+   * 匹配查询
+   * @param query 查询字符串
+   * @returns 是否匹配
+   */
   match(query: string): boolean {
     const queryLower = query.toLowerCase();
     for (const keyword of this.manifest.trigger_keywords) {
@@ -89,6 +143,13 @@ export class BaseSkill {
     return false;
   }
 
+  /**
+   * 执行技能
+   * @param query 查询字符串
+   * @param context 上下文（可选）
+   * @param kwargs 额外参数（可选）
+   * @returns 执行结果
+   */
   async execute(
     query: string,
     context?: Record<string, any>,
@@ -97,6 +158,10 @@ export class BaseSkill {
     return `[技能 ${this.manifest.name}] 已激活，但尚未实现具体功能。`;
   }
 
+  /**
+   * 获取系统提示
+   * @returns 系统提示字符串
+   */
   getSystemPrompt(): string {
     if (this.manifest.system_prompt_enhancement) {
       return `\n[专业技能：${this.manifest.name}]\n${this.manifest.system_prompt_enhancement}`;
@@ -104,24 +169,42 @@ export class BaseSkill {
     return "";
   }
 
+  /**
+   * 获取技能清单
+   */
   get Manifest(): SkillManifest {
     return this.manifest;
   }
 
+  /**
+   * 获取技能是否加载
+   */
   get IsLoaded(): boolean {
     return this.isLoaded;
   }
 }
 
+/**
+ * 技能注册表
+ * 用于管理技能的注册、加载和查询
+ */
 export class SkillRegistry {
-  private skills: Record<string, BaseSkill>;
-  private skillClasses: Record<string, new (manifest: SkillManifest) => BaseSkill>;
+  private skills: Record<string, BaseSkill>; // 技能映射
+  private skillClasses: Record<string, new (manifest: SkillManifest) => BaseSkill> = {}; // 技能类映射
 
+  /**
+   * 构造函数
+   */
   constructor() {
     this.skills = {};
     this.skillClasses = {};
   }
 
+  /**
+   * 注册技能类
+   * @param skillName 技能名称
+   * @param skillClass 技能类
+   */
   registerSkillClass(
     skillName: string,
     skillClass: new (manifest: SkillManifest) => BaseSkill
@@ -129,10 +212,19 @@ export class SkillRegistry {
     this.skillClasses[skillName] = skillClass;
   }
 
+  /**
+   * 注册技能
+   * @param skill 技能实例
+   */
   registerSkill(skill: BaseSkill): void {
     this.skills[skill.Manifest.name] = skill;
   }
 
+  /**
+   * 注销技能
+   * @param skillName 技能名称
+   * @returns 是否注销成功
+   */
   unregisterSkill(skillName: string): boolean {
     if (skillName in this.skills) {
       delete this.skills[skillName];
@@ -141,10 +233,20 @@ export class SkillRegistry {
     return false;
   }
 
+  /**
+   * 获取技能
+   * @param skillName 技能名称
+   * @returns 技能实例或undefined
+   */
   getSkill(skillName: string): BaseSkill | undefined {
     return this.skills[skillName];
   }
 
+  /**
+   * 从目录加载技能
+   * @param directory 目录路径
+   * @returns 加载的技能数量
+   */
   loadSkillsFromDirectory(directory: string): number {
     let count = 0;
 
@@ -182,6 +284,11 @@ export class SkillRegistry {
     return count;
   }
 
+  /**
+   * 从列表加载技能
+   * @param manifests 技能清单列表
+   * @returns 加载的技能数量
+   */
   loadSkillsFromList(manifests: Record<string, any>[]): number {
     let count = 0;
 
@@ -203,6 +310,11 @@ export class SkillRegistry {
     return count;
   }
 
+  /**
+   * 查找匹配的技能
+   * @param query 查询字符串
+   * @returns 匹配的技能列表
+   */
   findMatchingSkills(query: string): BaseSkill[] {
     const matching: BaseSkill[] = [];
 
@@ -215,10 +327,17 @@ export class SkillRegistry {
     return matching;
   }
 
+  /**
+   * 获取所有技能
+   * @returns 技能列表
+   */
   getAllSkills(): BaseSkill[] {
     return Object.values(this.skills);
   }
 
+  /**
+   * 初始化所有技能
+   */
   async initializeAll(): Promise<void> {
     for (const skill of Object.values(this.skills)) {
       try {
@@ -229,6 +348,9 @@ export class SkillRegistry {
     }
   }
 
+  /**
+   * 清理所有技能
+   */
   async cleanupAll(): Promise<void> {
     for (const skill of Object.values(this.skills)) {
       try {
@@ -240,6 +362,9 @@ export class SkillRegistry {
   }
 }
 
+/**
+ * 默认技能列表
+ */
 export const DEFAULT_SKILLS = [
   {
     name: 'creative_writing',
@@ -290,14 +415,23 @@ export const DEFAULT_SKILLS = [
   },
 ];
 
+/**
+ * 创建默认技能注册表
+ * @returns 技能注册表实例
+ */
 export function createDefaultRegistry(): SkillRegistry {
   const registry = new SkillRegistry();
   registry.loadSkillsFromList(DEFAULT_SKILLS);
   return registry;
 }
 
+// 全局技能注册表实例
 let globalRegistry: SkillRegistry | null = null;
 
+/**
+ * 获取技能注册表
+ * @returns 技能注册表实例
+ */
 export function getSkillRegistry(): SkillRegistry {
   if (!globalRegistry) {
     globalRegistry = createDefaultRegistry();

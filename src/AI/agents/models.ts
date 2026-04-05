@@ -1,28 +1,49 @@
+/**
+ * 职业枚举，定义了智能体的职业类型
+ */
 export enum Profession {
-  WRITER = "作家",
-  DOCTOR = "医生",
-  PROGRAMMER = "程序员",
-  TEACHER = "教师",
-  ARTIST = "艺术家",
-  ENGINEER = "工程师",
-  SCIENTIST = "科学家",
-  BUSINESS = "商人"
+  WRITER = "作家",      // 作家
+  DOCTOR = "医生",      // 医生
+  PROGRAMMER = "程序员",  // 程序员
+  TEACHER = "教师",      // 教师
+  ARTIST = "艺术家",     // 艺术家
+  ENGINEER = "工程师",    // 工程师
+  SCIENTIST = "科学家",   // 科学家
+  BUSINESS = "商人"       // 商人
 }
 
+/**
+ * 智能体配置文件接口，定义了智能体的基本属性
+ */
 export interface AgentProfile {
-  name: string;
-  age: number;
-  profession: Profession;
-  personality: string;
-  background: string;
-  hobbies: string[];
-  skills: string[];
-  appearance: string;
-  speech_style: string;
-  toDict(): Record<string, any>;
+  name: string;           // 智能体名称
+  age: number;            // 智能体年龄
+  profession: Profession;  // 智能体职业
+  personality: string;     // 智能体性格
+  background: string;      // 智能体背景故事
+  hobbies: string[];       // 智能体爱好
+  skills: string[];        // 智能体技能
+  appearance: string;      // 智能体外貌
+  speech_style: string;    // 智能体说话风格
+  toDict(): Record<string, any>;  // 转换为字典的方法
 }
 
+/**
+ * 智能体配置文件实现类
+ */
 export class AgentProfileImpl implements AgentProfile {
+  /**
+   * 构造函数
+   * @param name 智能体名称
+   * @param age 智能体年龄
+   * @param profession 智能体职业
+   * @param personality 智能体性格
+   * @param background 智能体背景故事
+   * @param hobbies 智能体爱好（默认空数组）
+   * @param skills 智能体技能（默认空数组）
+   * @param appearance 智能体外貌（默认空字符串）
+   * @param speech_style 智能体说话风格（默认normal）
+   */
   constructor(
     public name: string,
     public age: number,
@@ -35,6 +56,10 @@ export class AgentProfileImpl implements AgentProfile {
     public speech_style: string = "normal"
   ) {}
 
+  /**
+   * 转换为字典
+   * @returns 智能体配置的字典表示
+   */
   toDict(): Record<string, any> {
     return {
       name: this.name,
@@ -50,7 +75,11 @@ export class AgentProfileImpl implements AgentProfile {
   }
 }
 
+/**
+ * 默认智能体配置文件，包含各种职业的预设智能体
+ */
 export const DEFAULT_PROFILES: Record<string, AgentProfile> = {
+  // 作家智能体
   writer: new AgentProfileImpl(
     "林墨",
     32,
@@ -63,6 +92,7 @@ export const DEFAULT_PROFILES: Record<string, AgentProfile> = {
     "文艺、喜欢用比喻"
   ),
   
+  // 医生智能体
   doctor: new AgentProfileImpl(
     "赵仁",
     45,
@@ -75,6 +105,7 @@ export const DEFAULT_PROFILES: Record<string, AgentProfile> = {
     "专业但易懂、关心他人"
   ),
   
+  // 程序员智能体
   programmer: new AgentProfileImpl(
     "王码",
     28,
@@ -87,6 +118,7 @@ export const DEFAULT_PROFILES: Record<string, AgentProfile> = {
     "直接、喜欢用技术术语"
   ),
   
+  // 教师智能体
   teacher: new AgentProfileImpl(
     "李育",
     38,
@@ -99,6 +131,7 @@ export const DEFAULT_PROFILES: Record<string, AgentProfile> = {
     "循循善诱、鼓励式"
   ),
   
+  // 艺术家智能体
   artist: new AgentProfileImpl(
     "陈艺",
     29,
@@ -111,6 +144,7 @@ export const DEFAULT_PROFILES: Record<string, AgentProfile> = {
     "富有诗意、感性"
   ),
   
+  // 工程师智能体
   engineer: new AgentProfileImpl(
     "张工",
     35,
@@ -123,6 +157,7 @@ export const DEFAULT_PROFILES: Record<string, AgentProfile> = {
     "专业、条理清晰"
   ),
   
+  // 科学家智能体
   scientist: new AgentProfileImpl(
     "刘研",
     42,
@@ -135,6 +170,7 @@ export const DEFAULT_PROFILES: Record<string, AgentProfile> = {
     "严谨、逻辑性强"
   ),
   
+  // 商人智能体
   business: new AgentProfileImpl(
     "钱商",
     40,
@@ -148,6 +184,16 @@ export const DEFAULT_PROFILES: Record<string, AgentProfile> = {
   )
 };
 
+/**
+ * 创建智能体配置文件
+ * @param name 智能体名称
+ * @param profession 智能体职业（字符串或Profession枚举）
+ * @param age 智能体年龄（默认30）
+ * @param personality 智能体性格（默认"友善"）
+ * @param background 智能体背景故事（默认空字符串）
+ * @param customSkills 自定义技能（可选）
+ * @returns 智能体配置文件实例
+ */
 export function createAgentProfile(
   name: string,
   profession: string | Profession,
@@ -158,6 +204,7 @@ export function createAgentProfile(
 ): AgentProfile {
   let professionEnum: Profession;
   
+  // 处理职业参数
   if (typeof profession === 'string') {
     // 检查是否是枚举值（中文）
     const values = Object.values(Profession);
@@ -171,6 +218,7 @@ export function createAgentProfile(
     professionEnum = profession;
   }
 
+  // 创建并返回智能体配置文件
   return new AgentProfileImpl(
     name,
     age,

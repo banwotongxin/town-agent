@@ -1,16 +1,31 @@
+// 导入基础智能体和智能体配置文件
 import { BaseAgent } from './base_agent';
 import { AgentProfile } from './models';
 
+/**
+ * 验证智能体类，继承自基础智能体，负责验证任务执行结果
+ */
 export class VerificationAgent extends BaseAgent {
-  private team: any;
-  private currentResult: string | null;
+  private team: any;               // 团队实例
+  private currentResult: string | null;  // 当前验证结果
 
+  /**
+   * 构造函数
+   * @param agentId 智能体ID
+   * @param profile 智能体配置文件
+   * @param team 团队实例
+   */
   constructor(agentId: string, profile: AgentProfile, team: any) {
     super(agentId, profile);
     this.team = team;
     this.currentResult = null;
   }
 
+  /**
+   * 验证任务结果
+   * @param result 任务执行结果
+   * @returns 验证后的结果
+   */
   async verifyResult(result: string): Promise<string> {
     this.currentResult = result;
     const profession = this.Profile.profession;
@@ -18,11 +33,18 @@ export class VerificationAgent extends BaseAgent {
     return `${result}\n\n${verificationReport}`;
   }
 
+  /**
+   * 生成验证报告
+   * @param result 任务执行结果
+   * @param profession 专业领域
+   * @returns 验证报告
+   */
   async generateReport(result: string, profession: string): Promise<string> {
     let report = "【验收报告】\n";
     report += `验收者: ${this.Profile.name} (专业: ${profession})\n`;
     report += "-" .repeat(50) + "\n";
 
+    // 根据专业领域生成不同的验收标准和结果
     if (profession === "作家") {
       report += "验收标准:\n";
       report += "1. 内容完整性: 检查是否包含所有必要的内容\n";
@@ -63,6 +85,10 @@ export class VerificationAgent extends BaseAgent {
     return report;
   }
 
+  /**
+   * 获取智能体状态
+   * @returns 智能体状态对象
+   */
   getStatus(): Record<string, any> {
     const status = super.getStatus();
     return {
@@ -72,6 +98,10 @@ export class VerificationAgent extends BaseAgent {
     };
   }
 
+  /**
+   * 转换为字符串
+   * @returns 智能体的字符串表示
+   */
   toString(): string {
     return `VerificationAgent(${this.Profile.name}, ${this.Profile.profession})`;
   }

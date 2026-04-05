@@ -1,3 +1,7 @@
+/**
+ * 中间件工厂类
+ * 用于创建中间件管理器和各种中间件实例
+ */
 import { MiddlewareManager } from './base';
 import { ClarificationMiddleware } from './clarification';
 import { ConcurrentLimitMiddleware } from './concurrent_limit';
@@ -8,6 +12,10 @@ import { LoopDetectionMiddleware } from './loop_detection';
 import { MemorySummarizationMiddleware } from './memory_summarization';
 
 export class MiddlewareFactory {
+  /**
+   * 创建默认的中间件管理器
+   * @returns 配置了默认中间件的中间件管理器
+   */
   static createDefaultMiddlewareManager(): MiddlewareManager {
     const manager = new MiddlewareManager();
 
@@ -23,6 +31,13 @@ export class MiddlewareFactory {
     return manager;
   }
 
+  /**
+   * 根据名称创建中间件
+   * @param name 中间件名称
+   * @param options 中间件选项（可选）
+   * @returns 中间件实例
+   * @throws 当中间件名称不存在时抛出错误
+   */
   static createMiddleware(name: string, options?: any): any {
     switch (name) {
       case 'clarification':

@@ -1,40 +1,64 @@
+// 导入智能体相关类和函数
 import { LeaderAgent } from './leader_agent';
 import { SubAgent } from './sub_agent';
 import { VerificationAgent } from './verification_agent';
 import { createAgentProfile, AgentProfile } from './models';
 
+/**
+ * 团队智能体类，管理一个由领导智能体、子智能体和验证智能体组成的团队
+ */
 export class TeamAgent {
-  private teamId: string;
-  private profession: string;
-  private leaderAgent: LeaderAgent | null;
-  private subAgents: SubAgent[];
-  private verificationAgent: VerificationAgent | null;
-  private tasks: Array<{
-    task: string;
-    result: string;
-    timestamp: string;
+  private teamId: string;                  // 团队ID
+  private profession: string;              // 团队专业领域
+  private leaderAgent: LeaderAgent | null;  // 领导智能体
+  private subAgents: SubAgent[];           // 子智能体数组
+  private verificationAgent: VerificationAgent | null; // 验证智能体
+  private tasks: Array<{                   // 任务历史
+    task: string;      // 任务内容
+    result: string;    // 任务结果
+    timestamp: string; // 时间戳
   }>;
 
+  /**
+   * 获取团队ID
+   */
   get TeamId(): string {
     return this.teamId;
   }
 
+  /**
+   * 获取团队专业领域
+   */
   get Profession(): string {
     return this.profession;
   }
 
+  /**
+   * 获取领导智能体
+   */
   get LeaderAgent(): LeaderAgent | null {
     return this.leaderAgent;
   }
 
+  /**
+   * 获取子智能体数组
+   */
   get SubAgents(): SubAgent[] {
     return this.subAgents;
   }
 
+  /**
+   * 获取验证智能体
+   */
   get VerificationAgent(): VerificationAgent | null {
     return this.verificationAgent;
   }
 
+  /**
+   * 构造函数
+   * @param teamId 团队ID
+   * @param profession 团队专业领域
+   */
   constructor(teamId: string, profession: string) {
     this.teamId = teamId;
     this.profession = profession;
@@ -44,13 +68,21 @@ export class TeamAgent {
     this.tasks = [];
   }
 
+  /**
+   * 创建团队
+   * @param leaderProfile 领导智能体配置文件
+   * @param subProfiles 子智能体配置文件数组
+   * @param verificationProfile 验证智能体配置文件
+   */
   createTeam(leaderProfile: AgentProfile, subProfiles: AgentProfile[], verificationProfile: AgentProfile): void {
+    // 创建领导智能体
     this.leaderAgent = new LeaderAgent(
       `leader_${Math.random().toString(16).substr(2, 8)}`,
       leaderProfile,
       this
     );
 
+    // 创建子智能体数组
     this.subAgents = subProfiles.map((profile, index) => {
       return new SubAgent(
         `sub_${Math.random().toString(16).substr(2, 8)}`,
@@ -60,6 +92,7 @@ export class TeamAgent {
       );
     });
 
+    // 创建验证智能体
     this.verificationAgent = new VerificationAgent(
       `verification_${Math.random().toString(16).substr(2, 8)}`,
       verificationProfile,
@@ -67,6 +100,10 @@ export class TeamAgent {
     );
   }
 
+  /**
+   * 添加智能体
+   * @param agent 智能体实例
+   */
   addAgent(agent: LeaderAgent | SubAgent | VerificationAgent): void {
     if (agent instanceof LeaderAgent) {
       this.leaderAgent = agent;
@@ -77,6 +114,10 @@ export class TeamAgent {
     }
   }
 
+  /**
+   * 移除智能体
+   * @param agentId 智能体ID
+   */
   removeAgent(agentId: string): void {
     if (this.leaderAgent && this.leaderAgent['agentId'] === agentId) {
       this.leaderAgent = null;
@@ -88,11 +129,21 @@ export class TeamAgent {
     }
   }
 
+  /**
+   * 更新智能体
+   * @param agentId 智能体ID
+   * @param newAgent 新智能体实例
+   */
   updateAgent(agentId: string, newAgent: LeaderAgent | SubAgent | VerificationAgent): void {
     this.removeAgent(agentId);
     this.addAgent(newAgent);
   }
 
+  /**
+   * 获取智能体
+   * @param agentId 智能体ID
+   * @returns 智能体实例或null
+   */
   getAgent(agentId: string): LeaderAgent | SubAgent | VerificationAgent | null {
     if (this.leaderAgent && this.leaderAgent['agentId'] === agentId) {
       return this.leaderAgent;
@@ -108,22 +159,33 @@ export class TeamAgent {
     return null;
   }
 
+  /**
+   * 清空任务历史
+   */
   clearTasks(): void {
     this.tasks = [];
   }
 
+  /**
+   * 执行任务
+   * @param task 任务内容
+   * @returns 任务执行结果
+   */
   async executeTask(task: string): Promise<string> {
+    // 检查团队是否完整
     if (!this.leaderAgent || this.subAgents.length === 0 || !this.verificationAgent) {
       return "[系统] 团队尚未完整创建，无法执行任务";
     }
 
+    // 分解任务
     const subtasks = await this.leaderAgent.decomposeTask(task);
+    // 分配子任务
     const assignments = await this.leaderAgent.assignSubtasks(subtasks, this.subAgents);
 
     const results: string[] = [];
-    // 遍历subAgents，查找对应的任务并执行
+    // 遍历子智能体执行任务
     for (const agent of this.subAgents) {
-      // 查找agent对应的子任务
+      // 查找对应任务并执行
       for (const [agentKey, subtask] of Object.entries(assignments)) {
         if (agentKey === agent.AgentId) {
           const result = await agent.executeTask(subtask);
@@ -133,9 +195,12 @@ export class TeamAgent {
       }
     }
 
+    // 收集结果
     const collectedResult = await this.leaderAgent.collectResults(results);
+    // 验证结果
     const finalResult = await this.verificationAgent.verifyResult(collectedResult);
 
+    // 记录任务
     this.tasks.push({
       task,
       result: finalResult,
@@ -145,6 +210,11 @@ export class TeamAgent {
     return finalResult;
   }
 
+  /**
+   * 获取任务结果
+   * @param taskId 任务ID（可选）
+   * @returns 任务结果或null
+   */
   getResult(taskId?: string): string | null {
     if (!taskId && this.tasks.length > 0) {
       return this.tasks[this.tasks.length - 1].result;
@@ -159,6 +229,10 @@ export class TeamAgent {
     return null;
   }
 
+  /**
+   * 获取团队状态
+   * @returns 团队状态对象
+   */
   getStatus(): Record<string, any> {
     return {
       team_id: this.teamId,
@@ -170,12 +244,23 @@ export class TeamAgent {
     };
   }
 
+  /**
+   * 转换为字符串
+   * @returns 团队智能体的字符串表示
+   */
   toString(): string {
     return `TeamAgent(${this.teamId}, ${this.profession}, ${this.subAgents.length} sub-agents)`;
   }
 }
 
+/**
+ * 创建团队智能体
+ * @param profession 专业领域
+ * @param teamId 团队ID（可选）
+ * @returns 团队智能体实例
+ */
 export function createTeamAgent(profession: string, teamId?: string): TeamAgent {
+  // 生成团队ID
   const id = teamId || `team_${Math.random().toString(16).substr(2, 8)}`;
   const team = new TeamAgent(id, profession);
 
@@ -183,7 +268,9 @@ export function createTeamAgent(profession: string, teamId?: string): TeamAgent 
   let subProfiles: AgentProfile[];
   let verificationProfile: AgentProfile;
 
+  // 根据专业领域创建不同的团队配置
   if (profession === "作家") {
+    // 作家团队配置
     leaderProfile = createAgentProfile(
       "林墨",
       "作家",
@@ -237,6 +324,7 @@ export function createTeamAgent(profession: string, teamId?: string): TeamAgent 
       ["creative_writing"]
     );
   } else if (profession === "医生") {
+    // 医生团队配置
     leaderProfile = createAgentProfile(
       "赵仁",
       "医生",
@@ -290,6 +378,7 @@ export function createTeamAgent(profession: string, teamId?: string): TeamAgent 
       ["health_consultation"]
     );
   } else if (profession === "程序员") {
+    // 程序员团队配置
     leaderProfile = createAgentProfile(
       "王码",
       "程序员",
@@ -343,6 +432,7 @@ export function createTeamAgent(profession: string, teamId?: string): TeamAgent 
       ["code_review"]
     );
   } else {
+    // 默认团队配置
     leaderProfile = createAgentProfile(
       "团队 leader",
       profession,
@@ -377,6 +467,7 @@ export function createTeamAgent(profession: string, teamId?: string): TeamAgent 
     );
   }
 
+  // 创建团队
   team.createTeam(leaderProfile, subProfiles, verificationProfile);
   return team;
 }

@@ -1,30 +1,44 @@
+// 导入智能体相关类和函数
 import { BaseMessage, HumanMessage, AIMessage, BaseAgent, createBaseAgent } from '../agents/base_agent';
 import { AgentGraph, AgentState } from './agent_graph';
 import { DualMemorySystem, createMemorySystem } from '../memory/dual_memory';
 import { DEFAULT_PROFILES } from '../agents/models';
 
+/**
+ * 小镇状态接口，定义了小镇的状态
+ */
 export interface TownState {
-  user_input: string;
-  target_agent_id: string;
-  selected_agent_id: string;
-  agent_response: string;
-  conversation_history: BaseMessage[];
-  should_continue: boolean;
+  user_input: string;           // 用户输入
+  target_agent_id: string;      // 目标智能体ID
+  selected_agent_id: string;    // 选中的智能体ID
+  agent_response: string;       // 智能体响应
+  conversation_history: BaseMessage[]; // 对话历史
+  should_continue: boolean;     // 是否继续处理
 }
 
+/**
+ * 技能注册表接口，定义了技能管理的方法
+ */
 export interface SkillRegistry {
-  get_all_skills: () => any[];
-  cleanup_all: () => Promise<void>;
-  findMatchingSkills: (input: string) => any[];
-  getSkill: (name: string) => any;
+  get_all_skills: () => any[];            // 获取所有技能
+  cleanup_all: () => Promise<void>;       // 清理所有技能
+  findMatchingSkills: (input: string) => any[];  // 查找匹配的技能
+  getSkill: (name: string) => any;        // 获取技能
 }
 
+/**
+ * 情感引擎接口，定义了情感管理的方法
+ */
 export interface EmotionEngine {
-  getRelationshipInfo: (agentId1: string, agentId2: string) => any;
-  getConversationStyleHint: (level: any) => string;
-  interact: (params: any) => any;
+  getRelationshipInfo: (agentId1: string, agentId2: string) => any;  // 获取关系信息
+  getConversationStyleHint: (level: any) => string;                 // 获取对话风格提示
+  interact: (params: any) => any;                                  // 互动
 }
 
+/**
+ * 获取技能注册表
+ * @returns 技能注册表实例
+ */
 export function getSkillRegistry(): SkillRegistry {
   return {
     get_all_skills: () => [],
@@ -34,6 +48,10 @@ export function getSkillRegistry(): SkillRegistry {
   };
 }
 
+/**
+ * 获取情感引擎
+ * @returns 情感引擎实例
+ */
 export function getEmotionEngine(): EmotionEngine {
   return {
     getRelationshipInfo: (agentId1: string, agentId2: string) => null,
@@ -42,23 +60,36 @@ export function getEmotionEngine(): EmotionEngine {
   };
 }
 
+/**
+ * 小镇编排器类，管理小镇中的智能体和交互
+ */
 export class TownOrchestrator {
-  private townName: string;
-  private agents: Record<string, BaseAgent>;
-  private agentGraphs: Record<string, AgentGraph>;
-  private agentMemories: Record<string, DualMemorySystem>;
-  private skillRegistry: SkillRegistry;
-  private emotionEngine: EmotionEngine;
-  private state: TownState;
+  private townName: string;                // 小镇名称
+  private agents: Record<string, BaseAgent>;       // 智能体集合
+  private agentGraphs: Record<string, AgentGraph>;  // 智能体图集合
+  private agentMemories: Record<string, DualMemorySystem>; // 智能体记忆系统
+  private skillRegistry: SkillRegistry;     // 技能注册表
+  private emotionEngine: EmotionEngine;     // 情感引擎
+  private state: TownState;                // 小镇状态
 
+  /**
+   * 获取小镇名称
+   */
   get TownName(): string {
     return this.townName;
   }
 
+  /**
+   * 获取智能体集合
+   */
   get Agents(): Record<string, BaseAgent> {
     return this.agents;
   }
 
+  /**
+   * 构造函数
+   * @param townName 小镇名称（默认"赛博小镇"）
+   */
   constructor(townName: string = "赛博小镇") {
     this.townName = townName;
     this.agents = {};
@@ -67,6 +98,7 @@ export class TownOrchestrator {
     this.skillRegistry = getSkillRegistry();
     this.emotionEngine = getEmotionEngine();
 
+    // 初始化状态
     this.state = {
       user_input: "",
       target_agent_id: "",
@@ -77,9 +109,15 @@ export class TownOrchestrator {
     };
   }
 
+  /**
+   * 添加智能体
+   * @param agent 智能体实例
+   * @param memoryWindow 记忆窗口大小（默认5）
+   */
   addAgent(agent: BaseAgent, memoryWindow: number = 5): void {
     this.agents[agent.AgentId] = agent;
 
+    // 创建智能体的记忆系统
     const memory = createMemorySystem(
       agent.AgentId,
       memoryWindow
@@ -87,10 +125,16 @@ export class TownOrchestrator {
     this.agentMemories[agent.AgentId] = memory;
   }
 
+  /**
+   * 移除智能体
+   * @param agentId 智能体ID
+   * @returns 是否成功移除
+   */
   removeAgent(agentId: string): boolean {
     if (agentId in this.agents) {
       delete this.agents[agentId];
 
+      // 清理相关资源
       if (agentId in this.agentGraphs) {
         delete this.agentGraphs[agentId];
       }
@@ -104,14 +148,29 @@ export class TownOrchestrator {
     return false;
   }
 
+  /**
+   * 获取智能体
+   * @param agentId 智能体ID
+   * @returns 智能体实例或undefined
+   */
   getAgent(agentId: string): BaseAgent | undefined {
     return this.agents[agentId];
   }
 
+  /**
+   * 列出所有智能体
+   * @returns 智能体状态数组
+   */
   listAgents(): Record<string, any>[] {
     return Object.values(this.agents).map(agent => agent.getStatus());
   }
 
+  /**
+   * 获取或创建智能体图
+   * @param agentId 智能体ID
+   * @param otherAgentId 其他智能体ID
+   * @returns 智能体图实例或null
+   */
   private getOrCreateAgentGraph(agentId: string, otherAgentId: string): AgentGraph | null {
     if (agentId in this.agentGraphs) {
       return this.agentGraphs[agentId];
@@ -124,6 +183,7 @@ export class TownOrchestrator {
     const agent = this.agents[agentId];
     const memory = this.agentMemories[agentId];
 
+    // 创建智能体图
     const graph = new AgentGraph(
       agent,
       memory,
@@ -136,6 +196,11 @@ export class TownOrchestrator {
     return graph;
   }
 
+  /**
+   * 分发节点
+   * @param state 小镇状态
+   * @returns 更新后的状态
+   */
   async dispatchNode(state: TownState): Promise<TownState> {
     if (!state.target_agent_id) {
       const agentIds = Object.keys(this.agents);
@@ -151,6 +216,11 @@ export class TownOrchestrator {
     return state;
   }
 
+  /**
+   * 路由到智能体节点
+   * @param state 小镇状态
+   * @returns 更新后的状态
+   */
   async routeToAgentNode(state: TownState): Promise<TownState> {
     const agentId = state.selected_agent_id;
 
@@ -166,6 +236,7 @@ export class TownOrchestrator {
       return state;
     }
 
+    // 处理消息
     const result = await graph.processMessage(
       state.user_input,
       state.conversation_history
@@ -173,21 +244,35 @@ export class TownOrchestrator {
 
     state.agent_response = result.response;
 
+    // 更新对话历史
     state.conversation_history.push(new HumanMessage(state.user_input));
     state.conversation_history.push(new AIMessage(result.response));
 
     return state;
   }
 
+  /**
+   * 判断是否继续
+   * @param state 小镇状态
+   * @returns 路由方向
+   */
   shouldContinue(state: TownState): string {
     return state.should_continue ? "continue" : "end";
   }
 
+  /**
+   * 聊天
+   * @param userInput 用户输入
+   * @param targetAgentId 目标智能体ID（可选）
+   * @param conversationHistory 对话历史（可选）
+   * @returns 聊天结果
+   */
   async chat(
     userInput: string,
     targetAgentId?: string,
     conversationHistory?: BaseMessage[]
   ): Promise<Record<string, any>> {
+    // 初始化状态
     this.state = {
       user_input: userInput,
       target_agent_id: targetAgentId || "",
@@ -199,6 +284,7 @@ export class TownOrchestrator {
 
     let state = this.state;
 
+    // 分发和路由
     state = await this.dispatchNode(state);
     state = await this.routeToAgentNode(state);
 
@@ -212,6 +298,13 @@ export class TownOrchestrator {
     };
   }
 
+  /**
+   * 多智能体聊天
+   * @param topic 话题
+   * @param participantIds 参与者ID数组
+   * @param maxRounds 最大轮数（默认3）
+   * @returns 聊天记录
+   */
   async multiAgentChat(
     topic: string,
     participantIds: string[],
@@ -224,6 +317,7 @@ export class TownOrchestrator {
     const records: Record<string, any>[] = [];
     let currentTopic = topic;
 
+    // 多轮对话
     for (let roundNum = 0; roundNum < maxRounds; roundNum++) {
       for (let i = 0; i < participantIds.length; i++) {
         const agentId = participantIds[i];
@@ -235,11 +329,13 @@ export class TownOrchestrator {
           continue;
         }
 
+        // 处理消息
         const result = await graph.processMessage(
           currentTopic,
           []
         );
 
+        // 记录结果
         records.push({
           round: roundNum + 1,
           agent_id: agentId,
@@ -247,6 +343,7 @@ export class TownOrchestrator {
           response: result.response
         });
 
+        // 更新话题
         currentTopic = result.response;
       }
     }
@@ -254,6 +351,10 @@ export class TownOrchestrator {
     return records;
   }
 
+  /**
+   * 获取小镇状态
+   * @returns 小镇状态对象
+   */
   getTownStatus(): Record<string, any> {
     return {
       town_name: this.townName,
@@ -263,6 +364,9 @@ export class TownOrchestrator {
     };
   }
 
+  /**
+   * 清理资源
+   */
   async cleanup(): Promise<void> {
     await this.skillRegistry.cleanup_all();
 
@@ -271,6 +375,12 @@ export class TownOrchestrator {
   }
 }
 
+/**
+ * 创建小镇编排器
+ * @param townName 小镇名称（默认"赛博小镇"）
+ * @param agents 智能体数组（可选）
+ * @returns 小镇编排器实例
+ */
 export function createTownOrchestrator(
   townName: string = "赛博小镇",
   agents?: BaseAgent[]
@@ -286,6 +396,11 @@ export function createTownOrchestrator(
   return orchestrator;
 }
 
+/**
+ * 创建默认小镇
+ * @param numAgents 智能体数量（默认4）
+ * @returns 小镇编排器实例
+ */
 export async function createDefaultTown(numAgents: number = 4): Promise<TownOrchestrator> {
   const orchestrator = new TownOrchestrator("赛博小镇");
 

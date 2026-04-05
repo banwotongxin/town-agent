@@ -1,3 +1,7 @@
+/**
+ * 赛博小镇 Web 服务器
+ * 提供前端页面和API接口，支持智能体交互和团队任务执行
+ */
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -6,11 +10,14 @@ import { createDefaultTown } from './AI/graph/town_graph';
 import { createTeamAgent } from './AI/agents/team_agent';
 import { BaseMessage } from './AI/agents/base_agent';
 
+// 创建Express应用实例
 const app = express();
+// 默认端口
 let PORT = 8888;
 
-// 启用CORS
+// 启用CORS（跨域资源共享）
 app.use(cors());
+// 解析JSON请求体
 app.use(express.json());
 
 // 全局变量存储小镇实例
@@ -19,16 +26,30 @@ let townInstance: any = null;
 // 存储团队实例的全局字典
 const teams: Record<string, any> = {};
 
-// LLM模型类，用于调用DeepSeek API
+/**
+ * DeepSeek模型类
+ * 用于调用DeepSeek API进行AI对话
+ */
 class DeepSeekModel {
+  // API密钥
   private apiKey: string;
+  // API基础URL
   private baseUrl: string;
 
+  /**
+   * 构造函数
+   * @param apiKey DeepSeek API密钥
+   */
   constructor(apiKey: string) {
     this.apiKey = apiKey;
     this.baseUrl = 'https://api.deepseek.com/v1/chat/completions';
   }
 
+  /**
+   * 调用LLM模型
+   * @param messages 消息数组
+   * @returns 模型响应
+   */
   async invoke(messages: BaseMessage[]): Promise<{ content: string }> {
     try {
       // 转换消息格式以适应DeepSeek API
@@ -42,6 +63,7 @@ class DeepSeekModel {
         return { role, content: msg.content };
       });
 
+      // 发送API请求
       const response = await fetch(this.baseUrl, {
         method: 'POST',
         headers: {
@@ -56,16 +78,19 @@ class DeepSeekModel {
         })
       });
 
+      // 检查响应状态
       if (!response.ok) {
         throw new Error(`API请求失败: ${response.status} ${response.statusText}`);
       }
 
+      // 解析响应数据
       const data: any = await response.json();
       return {
         content: data.choices[0].message.content
       };
     } catch (error) {
       console.error('LLM调用失败:', error);
+      // 出错时返回默认响应
       return {
         content: '[系统] 暂时无法回答你的问题，请稍后再试。'
       };
@@ -73,7 +98,11 @@ class DeepSeekModel {
   }
 }
 
-// 创建LLM模型实例
+/**
+ * 创建LLM模型实例
+ * @param apiKey API密钥
+ * @returns LLM模型实例
+ */
 function createLLMModel(apiKey: string): any {
   return new DeepSeekModel(apiKey);
 }
@@ -82,14 +111,18 @@ function createLLMModel(apiKey: string): any {
 const BASE_DIR = path.dirname(__dirname);
 const envPath = path.join(BASE_DIR, '.env');
 
+/**
+ * 加载API密钥
+ * @returns API密钥或null
+ */
 function loadApiKey(): string | null {
-  // 从 .env 文件加载 API Key
+  // 从环境变量加载API Key
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (apiKey) {
     return apiKey;
   }
 
-  // 从文件直接读取API Key作为备用方案
+  // 从.env文件直接读取API Key作为备用方案
   try {
     const content = fs.readFileSync(envPath, 'utf-8');
     const lines = content.split('\n');
@@ -105,8 +138,11 @@ function loadApiKey(): string | null {
   return null;
 }
 
+/**
+ * 根路径处理
+ * 返回前端页面
+ */
 app.get('/', (req, res) => {
-  // 返回前端页面
   try {
     // 使用绝对路径
     const htmlPath = path.join(BASE_DIR, 'frontend', 'index.html');
@@ -118,8 +154,10 @@ app.get('/', (req, res) => {
   }
 });
 
+/**
+ * 获取所有角色列表
+ */
 app.get('/api/agents', (req, res) => {
-  // 获取所有角色列表
   if (!townInstance) {
     return res.status(500).json({ error: '小镇未初始化' });
   }
@@ -198,8 +236,10 @@ app.get('/api/agents', (req, res) => {
   res.json(agents);
 });
 
+/**
+ * 与角色对话
+ */
 app.post('/api/chat', async (req, res) => {
-  // 与角色对话
   console.log('[API] 接收到对话请求');
 
   if (!townInstance) {
@@ -250,8 +290,10 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+/**
+ * 创建团队
+ */
 app.post('/api/teams', (req, res) => {
-  // 创建团队
   try {
     const data = req.body;
     const profession = data.profession || '';
@@ -276,8 +318,10 @@ app.post('/api/teams', (req, res) => {
   }
 });
 
+/**
+ * 执行团队任务
+ */
 app.post('/api/teams/task', async (req, res) => {
-  // 执行团队任务
   try {
     const data = req.body;
     const teamId = data.team_id || '';
@@ -311,8 +355,10 @@ app.post('/api/teams/task', async (req, res) => {
   }
 });
 
+/**
+ * 初始化小镇
+ */
 async function initializeTown() {
-  // 初始化小镇
   try {
     // 创建8个角色，确保所有职业都有代表
     townInstance = await createDefaultTown(8);
@@ -335,8 +381,11 @@ async function initializeTown() {
   }
 }
 
+/**
+ * 检查环境配置
+ * @returns 是否配置正确
+ */
 function checkEnv(): boolean {
-  // 检查环境配置
   console.log("检查环境配置...");
 
   // 检查API Key
@@ -352,6 +401,11 @@ function checkEnv(): boolean {
   return true;
 }
 
+/**
+ * 检查端口是否可用
+ * @param port 端口号
+ * @returns 端口是否可用
+ */
 function checkPort(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const net = require('net');
@@ -370,6 +424,11 @@ function checkPort(port: number): Promise<boolean> {
   });
 }
 
+/**
+ * 查找可用端口
+ * @param startPort 起始端口
+ * @returns 可用端口号
+ */
 async function findAvailablePort(startPort: number): Promise<number> {
   let port = startPort;
   while (port < startPort + 10) {
@@ -383,6 +442,9 @@ async function findAvailablePort(startPort: number): Promise<number> {
   throw new Error('没有可用的端口');
 }
 
+/**
+ * 启动服务器
+ */
 async function startServer() {
   try {
     // 检查环境配置

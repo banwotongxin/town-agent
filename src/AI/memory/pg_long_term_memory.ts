@@ -1,11 +1,23 @@
-import { Pool, PoolClient, QueryResult } from 'pg';
-import { MemoryItem, MemoryItemImpl } from './dual_memory';
+import { Pool } from 'pg';
+import { MemoryItem, MemoryItemImpl, LongTermMemoryInterface } from './dual_memory';
 
-export class PGLongTermMemory {
+/**
+ * PostgreSQL 长期记忆实现
+ * 使用 PostgreSQL 数据库存储智能体的长期记忆
+ */
+export class PGLongTermMemory implements LongTermMemoryInterface {
+  // 智能体ID
   private agentId: string;
+  // 记忆集合名称
   private collectionName: string;
+  // PostgreSQL 连接池
   private pool: Pool | null;
 
+  /**
+   * 构造函数
+   * @param agentId 智能体ID
+   * @param collectionName 记忆集合名称，默认为"default"
+   */
   constructor(
     agentId: string,
     collectionName: string = "default"
@@ -15,13 +27,16 @@ export class PGLongTermMemory {
     this.pool = null;
   }
 
+  /**
+   * 初始化内存系统
+   * 连接到 PostgreSQL 数据库并创建必要的表结构
+   */
   async initialize(): Promise<void> {
     try {
-      const { Pool } = await import('pg');
-      
       // 从配置中获取数据库连接信息
       const config = this.getPgConfig();
       
+      // 创建连接池
       this.pool = new Pool({
         host: config.host,
         port: config.port,
@@ -35,10 +50,14 @@ export class PGLongTermMemory {
       // 建表
       await this.createTable();
     } catch (error) {
-      throw new Error(`Failed to initialize PGLongTermMemory: ${error.message}`);
+      throw new Error(`Failed to initialize PGLongTermMemory: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
+  /**
+   * 获取 PostgreSQL 配置
+   * @returns 数据库配置对象
+   */
   private getPgConfig(): Record<string, any> {
     // 这里应该从配置文件中获取，暂时使用默认值
     return {
@@ -52,6 +71,10 @@ export class PGLongTermMemory {
     };
   }
 
+  /**
+   * 创建记忆表
+   * 如果表不存在则创建
+   */
   private async createTable(): Promise<void> {
     if (!this.pool) {
       throw new Error('Pool not initialized');
@@ -84,6 +107,9 @@ export class PGLongTermMemory {
     }
   }
 
+  /**
+   * 关闭连接池
+   */
   async close(): Promise<void> {
     if (this.pool) {
       await this.pool.end();
@@ -91,6 +117,13 @@ export class PGLongTermMemory {
     }
   }
 
+  /**
+   * 添加记忆
+   * @param content 记忆内容
+   * @param importance 重要性，默认0.5
+   * @param metadata 元数据（可选）
+   * @returns 记忆ID
+   */
   async addMemory(
     content: string,
     importance: number = 0.5,
@@ -100,18 +133,17 @@ export class PGLongTermMemory {
       throw new Error('Pool not initialized');
     }
 
-    const memoryId = Math.random().toString(16).substr(2, 8);
     const timestamp = Date.now() / 1000;
 
     try {
-      await this.pool.query(
+      const result = await this.pool.query(
         `
         INSERT INTO agent_memories
-          (id, agent_id, collection, content, importance, timestamp, metadata)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+          (agent_id, collection, content, importance, timestamp, metadata)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING id
         `,
         [
-          memoryId,
           this.agentId,
           this.collectionName,
           content,
@@ -120,13 +152,19 @@ export class PGLongTermMemory {
           metadata || {}
         ]
       );
-      return memoryId;
+      return result.rows[0].id;
     } catch (error) {
-      console.error('Error adding memory:', error);
-      throw error;
+      throw new Error(`Failed to add memory: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
+  /**
+   * 搜索记忆
+   * @param query 查询字符串
+   * @param topK 返回结果数量，默认3
+   * @param minImportance 最小重要性，默认0.0
+   * @returns 记忆项数组
+   */
   async search(
     query: string,
     topK: number = 3,
@@ -165,11 +203,14 @@ export class PGLongTermMemory {
         row.metadata
       ));
     } catch (error) {
-      console.error('Error searching memories:', error);
-      return [];
+      throw new Error(`Failed to search memories: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
+  /**
+   * 获取所有记忆
+   * @returns 记忆项数组
+   */
   async getAllMemories(): Promise<MemoryItem[]> {
     if (!this.pool) {
       throw new Error('Pool not initialized');
@@ -194,11 +235,14 @@ export class PGLongTermMemory {
         row.metadata
       ));
     } catch (error) {
-      console.error('Error getting all memories:', error);
-      return [];
+      throw new Error(`Failed to get all memories: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
+  /**
+   * 计算记忆数量
+   * @returns 记忆数量
+   */
   async count(): Promise<number> {
     if (!this.pool) {
       throw new Error('Pool not initialized');
@@ -211,11 +255,13 @@ export class PGLongTermMemory {
       );
       return parseInt(result.rows[0].count) || 0;
     } catch (error) {
-      console.error('Error counting memories:', error);
-      return 0;
+      throw new Error(`Failed to count memories: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
+  /**
+   * 清空记忆
+   */
   async clear(): Promise<void> {
     if (!this.pool) {
       throw new Error('Pool not initialized');
@@ -227,11 +273,15 @@ export class PGLongTermMemory {
         [this.agentId, this.collectionName]
       );
     } catch (error) {
-      console.error('Error clearing memories:', error);
-      throw error;
+      throw new Error(`Failed to clear memories: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
+  /**
+   * 删除指定记忆
+   * @param memoryId 记忆ID
+   * @returns 是否删除成功
+   */
   async deleteMemory(memoryId: string): Promise<boolean> {
     if (!this.pool) {
       throw new Error('Pool not initialized');
@@ -244,8 +294,7 @@ export class PGLongTermMemory {
       );
       return result.rowCount === 1;
     } catch (error) {
-      console.error('Error deleting memory:', error);
-      return false;
+      throw new Error(`Failed to delete memory: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }

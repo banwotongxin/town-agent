@@ -1,3 +1,6 @@
+/**
+ * 情感等级枚举，定义了智能体之间的关系等级
+ */
 export enum EmotionLevel {
   STRANGER = 1,      // 陌生人 (0-20)
   ACQUAINTANCE = 2,  // 泛泛之交 (20-40)
@@ -6,7 +9,15 @@ export enum EmotionLevel {
   CLOSE_FRIEND = 5   // 挚友 (80-100)
 }
 
+/**
+ * EmotionLevel命名空间，提供情感等级相关的工具方法
+ */
 export namespace EmotionLevel {
+  /**
+   * 根据情感分数获取情感等级
+   * @param score 情感分数
+   * @returns 情感等级
+   */
   export function fromScore(score: number): EmotionLevel {
     score = Math.max(0, Math.min(100, score)); // 限制在 0-100
 
@@ -23,6 +34,11 @@ export namespace EmotionLevel {
     }
   }
 
+  /**
+   * 获取情感等级对应的分数范围
+   * @param level 情感等级
+   * @returns 分数范围 [最小值, 最大值]
+   */
   export function getRange(level: EmotionLevel): [number, number] {
     const ranges: Record<EmotionLevel, [number, number]> = {
       [EmotionLevel.STRANGER]: [0, 20],
@@ -34,6 +50,11 @@ export namespace EmotionLevel {
     return ranges[level];
   }
 
+  /**
+   * 获取情感等级的中文名称
+   * @param level 情感等级
+   * @returns 中文名称
+   */
   export function getTitle(level: EmotionLevel): string {
     const titles: Record<EmotionLevel, string> = {
       [EmotionLevel.STRANGER]: "陌生人",
@@ -46,15 +67,28 @@ export namespace EmotionLevel {
   }
 }
 
+/**
+ * 关系状态类，记录智能体之间的关系信息
+ */
 export class RelationshipState {
-  agentAId: string;
-  agentBId: string;
-  emotionScore: number;
-  level: EmotionLevel;
-  interactionCount: number;
-  lastInteractionTime: number;
-  nickname?: string;
+  agentAId: string;           // 智能体A的ID
+  agentBId: string;           // 智能体B的ID
+  emotionScore: number;        // 情感分数
+  level: EmotionLevel;         // 情感等级
+  interactionCount: number;    // 互动次数
+  lastInteractionTime: number; // 最后互动时间
+  nickname?: string;           // 昵称
 
+  /**
+   * 构造函数
+   * @param agentAId 智能体A的ID
+   * @param agentBId 智能体B的ID
+   * @param emotionScore 初始情感分数（默认10.0，陌生人）
+   * @param level 初始情感等级（默认STRANGER）
+   * @param interactionCount 初始互动次数（默认0）
+   * @param lastInteractionTime 最后互动时间（默认0.0）
+   * @param nickname 昵称（可选）
+   */
   constructor(
     agentAId: string,
     agentBId: string,
@@ -73,12 +107,20 @@ export class RelationshipState {
     this.nickname = nickname;
   }
 
+  /**
+   * 更新情感等级
+   * @returns 等级是否发生变化
+   */
   updateLevel(): boolean {
     const oldLevel = this.level;
     this.level = EmotionLevel.fromScore(this.emotionScore);
     return oldLevel !== this.level;
   }
 
+  /**
+   * 转换为字典
+   * @returns 关系状态的字典表示
+   */
   toDict(): Record<string, any> {
     return {
       agent_a_id: this.agentAId,
@@ -92,12 +134,22 @@ export class RelationshipState {
   }
 }
 
+/**
+ * 情感计算器类，计算情感分数的变化
+ */
 export class EmotionCalculator {
-  private baseIncrease: number;
-  private baseDecrease: number;
-  private decayRate: number;
-  private noInteractionDays: number;
+  private baseIncrease: number;      // 基础增加量
+  private baseDecrease: number;      // 基础减少量
+  private decayRate: number;         // 时间衰减率（每天）
+  private noInteractionDays: number;  // 开始衰减的天数
 
+  /**
+   * 构造函数
+   * @param baseIncrease 基础增加量（默认3.0）
+   * @param baseDecrease 基础减少量（默认5.0）
+   * @param decayRate 时间衰减率（默认0.5）
+   * @param noInteractionDays 开始衰减的天数（默认7.0）
+   */
   constructor(
     baseIncrease: number = 3.0,     // 基础增加量
     baseDecrease: number = 5.0,     // 基础减少量
@@ -110,6 +162,14 @@ export class EmotionCalculator {
     this.noInteractionDays = noInteractionDays;
   }
 
+  /**
+   * 计算情感变化量
+   * @param interactionType 互动类型
+   * @param currentScore 当前情感分数
+   * @param currentLevel 当前情感等级
+   * @param sentiment 情感倾向（默认positive）
+   * @returns 情感变化量
+   */
   calculateDelta(
     interactionType: string,
     currentScore: number,
@@ -155,6 +215,12 @@ export class EmotionCalculator {
     return Math.round(delta * 100) / 100;
   }
 
+  /**
+   * 应用时间衰减
+   * @param currentScore 当前情感分数
+   * @param daysSinceLastInteraction 距离上次互动的天数
+   * @returns 衰减后的情感分数
+   */
   applyTimeDecay(
     currentScore: number,
     daysSinceLastInteraction: number
@@ -172,13 +238,25 @@ export class EmotionCalculator {
   }
 }
 
+/**
+ * 关系存储类，管理智能体之间的关系
+ */
 export class RelationshipStore {
-  private relationships: Record<string, RelationshipState>;
+  private relationships: Record<string, RelationshipState>; // 关系存储
 
+  /**
+   * 构造函数
+   */
   constructor() {
     this.relationships = {};
   }
 
+  /**
+   * 获取关系状态
+   * @param agentAId 智能体A的ID
+   * @param agentBId 智能体B的ID
+   * @returns 关系状态或undefined
+   */
   getRelationship(
     agentAId: string,
     agentBId: string
@@ -187,6 +265,12 @@ export class RelationshipStore {
     return this.relationships[key];
   }
 
+  /**
+   * 设置关系状态
+   * @param agentAId 智能体A的ID
+   * @param agentBId 智能体B的ID
+   * @param state 关系状态
+   */
   setRelationship(
     agentAId: string,
     agentBId: string,
@@ -196,6 +280,13 @@ export class RelationshipStore {
     this.relationships[key] = state;
   }
 
+  /**
+   * 获取或创建关系状态
+   * @param agentAId 智能体A的ID
+   * @param agentBId 智能体B的ID
+   * @param initialScore 初始情感分数（默认10.0）
+   * @returns 关系状态
+   */
   getOrCreate(
     agentAId: string,
     agentBId: string,
@@ -216,10 +307,21 @@ export class RelationshipStore {
     return this.relationships[key];
   }
 
+  /**
+   * 生成关系键
+   * @param agentAId 智能体A的ID
+   * @param agentBId 智能体B的ID
+   * @returns 关系键
+   */
   private makeKey(agentAId: string, agentBId: string): string {
     return [agentAId, agentBId].sort().join("-");
   }
 
+  /**
+   * 获取智能体的所有关系
+   * @param agentId 智能体ID
+   * @returns 关系状态数组
+   */
   getAllRelationships(agentId: string): RelationshipState[] {
     const results: RelationshipState[] = [];
     for (const state of Object.values(this.relationships)) {
@@ -231,15 +333,29 @@ export class RelationshipStore {
   }
 }
 
+/**
+ * 情感引擎类，管理智能体之间的情感互动
+ */
 export class EmotionEngine {
-  private calculator: EmotionCalculator;
-  private store: RelationshipStore;
+  private calculator: EmotionCalculator; // 情感计算器
+  private store: RelationshipStore;      // 关系存储
 
+  /**
+   * 构造函数
+   */
   constructor() {
     this.calculator = new EmotionCalculator();
     this.store = new RelationshipStore();
   }
 
+  /**
+   * 智能体之间互动
+   * @param agentAId 智能体A的ID
+   * @param agentBId 智能体B的ID
+   * @param interactionType 互动类型（默认conversation）
+   * @param sentiment 情感倾向（默认positive）
+   * @returns 互动结果
+   */
   interact(
     agentAId: string,
     agentBId: string,
@@ -285,6 +401,12 @@ export class EmotionEngine {
     };
   }
 
+  /**
+   * 获取关系信息
+   * @param agentAId 智能体A的ID
+   * @param agentBId 智能体B的ID
+   * @returns 关系信息或undefined
+   */
   getRelationshipInfo(
     agentAId: string,
     agentBId: string
@@ -296,6 +418,11 @@ export class EmotionEngine {
     return undefined;
   }
 
+  /**
+   * 获取对话风格提示
+   * @param level 情感等级
+   * @returns 对话风格提示
+   */
   getConversationStyleHint(level: EmotionLevel): string {
     const hints: Record<EmotionLevel, string> = {
       [EmotionLevel.STRANGER]: `
@@ -340,8 +467,13 @@ export class EmotionEngine {
   }
 }
 
+// 全局情感引擎实例
 let globalEmotionEngine: EmotionEngine | null = null;
 
+/**
+ * 获取全局情感引擎实例
+ * @returns 情感引擎实例
+ */
 export function getEmotionEngine(): EmotionEngine {
   if (!globalEmotionEngine) {
     globalEmotionEngine = new EmotionEngine();
@@ -349,6 +481,10 @@ export function getEmotionEngine(): EmotionEngine {
   return globalEmotionEngine;
 }
 
+/**
+ * 创建情感引擎实例
+ * @returns 情感引擎实例
+ */
 export function createEmotionEngine(): EmotionEngine {
   return new EmotionEngine();
 }

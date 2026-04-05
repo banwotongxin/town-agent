@@ -12,12 +12,11 @@ node_modules/
 # IDE
 .idea/
 .vscode/
-
+dist/
 # 操作系统
 .DS_Store
 Thumbs.db
-
-# 日志
+__pycache__/
 *.log
 
 # 测试

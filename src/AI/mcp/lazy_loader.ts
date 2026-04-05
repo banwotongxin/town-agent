@@ -1,27 +1,45 @@
+/**
+ * MCP服务器配置接口，定义了MCP服务器的配置信息
+ */
 export interface MCPServerConfig {
-  name: string;
-  command: string;
-  args: string[];
-  env: Record<string, string>;
-  timeout: number;
+  name: string;                 // 服务器名称
+  command: string;              // 启动命令
+  args: string[];               // 命令参数
+  env: Record<string, string>;  // 环境变量
+  timeout: number;              // 超时时间
 }
 
+/**
+ * MCP懒加载器类，用于延迟加载MCP服务器客户端
+ */
 export class MCPLazyLoader {
-  private configs: Record<string, MCPServerConfig>;
-  private clients: Record<string, any>;
-  private loading: Record<string, { locked: boolean; promise?: Promise<any> }>;
+  private configs: Record<string, MCPServerConfig>;  // 服务器配置
+  private clients: Record<string, any>;             // 已加载的客户端
+  private loading: Record<string, { locked: boolean; promise?: Promise<any> }>; // 加载状态
 
+  /**
+   * 构造函数
+   */
   constructor() {
     this.configs = {};
     this.clients = {};
     this.loading = {};
   }
 
+  /**
+   * 注册服务器
+   * @param config 服务器配置
+   */
   registerServer(config: MCPServerConfig): void {
     this.configs[config.name] = config;
     this.loading[config.name] = { locked: false };
   }
 
+  /**
+   * 从字典注册服务器
+   * @param name 服务器名称
+   * @param configDict 配置字典
+   */
   registerFromDict(name: string, configDict: Record<string, any>): void {
     const config: MCPServerConfig = {
       name,
@@ -33,6 +51,11 @@ export class MCPLazyLoader {
     this.registerServer(config);
   }
 
+  /**
+   * 获取客户端
+   * @param serverName 服务器名称
+   * @returns 客户端实例或undefined
+   */
   async getClient(serverName: string): Promise<any | undefined> {
     // 如果已加载，直接返回
     if (serverName in this.clients) {
@@ -67,6 +90,11 @@ export class MCPLazyLoader {
     }
   }
 
+  /**
+   * 加载客户端
+   * @param serverName 服务器名称
+   * @returns 客户端实例或undefined
+   */
   private async _loadClient(serverName: string): Promise<any | undefined> {
     if (!(serverName in this.configs)) {
       console.log(`MCP 服务器 ${serverName} 未注册`);
@@ -89,6 +117,11 @@ export class MCPLazyLoader {
     }
   }
 
+  /**
+   * 卸载客户端
+   * @param serverName 服务器名称
+   * @returns 是否成功卸载
+   */
   async unloadClient(serverName: string): Promise<boolean> {
     if (serverName in this.clients) {
       const client = this.clients[serverName];
@@ -101,32 +134,54 @@ export class MCPLazyLoader {
     return false;
   }
 
+  /**
+   * 卸载所有客户端
+   */
   async unloadAll(): Promise<void> {
     for (const serverName of Object.keys(this.clients)) {
       await this.unloadClient(serverName);
     }
   }
 
+  /**
+   * 检查服务器是否已加载
+   * @param serverName 服务器名称
+   * @returns 是否已加载
+   */
   isLoaded(serverName: string): boolean {
     return serverName in this.clients;
   }
 
+  /**
+   * 获取已加载的服务器列表
+   * @returns 服务器名称数组
+   */
   getLoadedServers(): string[] {
     return Object.keys(this.clients);
   }
 }
 
+/**
+ * 模拟MCP客户端类
+ */
 export class MockMCPClient {
-  serverName: string;
-  isConnected: boolean;
-  private tools: Record<string, string>[];
+  serverName: string;              // 服务器名称
+  isConnected: boolean;            // 是否已连接
+  private tools: Record<string, string>[];  // 工具列表
 
+  /**
+   * 构造函数
+   * @param serverName 服务器名称
+   */
   constructor(serverName: string) {
     this.serverName = serverName;
     this.isConnected = false;
     this.tools = [];
   }
 
+  /**
+   * 连接服务器
+   */
   async connect(): Promise<void> {
     this.isConnected = true;
     console.log(`[MockMCPClient] 连接到服务器：${this.serverName}`);
@@ -138,15 +193,28 @@ export class MockMCPClient {
     ];
   }
 
+  /**
+   * 关闭连接
+   */
   async close(): Promise<void> {
     this.isConnected = false;
     console.log(`[MockMCPClient] 断开连接：${this.serverName}`);
   }
 
+  /**
+   * 列出工具
+   * @returns 工具列表
+   */
   async listTools(): Promise<Record<string, string>[]> {
     return this.tools;
   }
 
+  /**
+   * 调用工具
+   * @param toolName 工具名称
+   * @param kwargs 工具参数
+   * @returns 工具执行结果
+   */
   async callTool(toolName: string, kwargs: Record<string, any>): Promise<any> {
     if (!this.isConnected) {
       throw new Error("未连接到服务器");
@@ -157,10 +225,17 @@ export class MockMCPClient {
   }
 }
 
+/**
+ * 创建MCP加载器
+ * @returns MCP加载器实例
+ */
 export function createMcpLoader(): MCPLazyLoader {
   return new MCPLazyLoader();
 }
 
+/**
+ * 默认MCP服务器配置
+ */
 export const DEFAULT_MCP_SERVERS = {
   literature_search: {
     command: "python",
@@ -184,14 +259,23 @@ export const DEFAULT_MCP_SERVERS = {
   }
 };
 
+/**
+ * 设置默认MCP服务器
+ * @param loader MCP加载器实例
+ */
 export function setupDefaultMcpServers(loader: MCPLazyLoader): void {
   for (const [name, config] of Object.entries(DEFAULT_MCP_SERVERS)) {
     loader.registerFromDict(name, config);
   }
 }
 
+// 全局MCP加载器实例
 let globalLoader: MCPLazyLoader | null = null;
 
+/**
+ * 获取全局MCP加载器
+ * @returns MCP加载器实例
+ */
 export function getMcpLoader(): MCPLazyLoader {
   if (!globalLoader) {
     globalLoader = createMcpLoader();
