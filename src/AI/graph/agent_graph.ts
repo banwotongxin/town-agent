@@ -114,8 +114,31 @@ export class AgentGraph {
    * @returns 更新后的状态
    */
   async queryMemoryNode(state: AgentState): Promise<AgentState> {
+    // 1. 从 ChromaDB 获取语义相关的长期记忆
     const context = await this.memory.getContext(state.user_input);
     state.memory_context = context;
+    
+    // 2. 从文件加载对话历史并添加到 messages
+    try {
+      const { RoleHistoryManager } = await import('../memory/role_history_manager');
+      const roleHistoryManager = new RoleHistoryManager();
+      const agentId = (this.agent as any).agentId || 'unknown';
+      
+      // 获取文件历史，限制token数
+      const fileHistory = await roleHistoryManager.getContext(agentId, {
+        maxTokens: 8000  // 控制在8000 token以内
+      });
+      
+      if (fileHistory.length > 0) {
+        console.log(`[文件历史] 角色 ${agentId} 加载了 ${fileHistory.length} 条历史消息`);
+        // 将文件历史添加到 state.messages 前面
+        state.messages = [...fileHistory, ...state.messages];
+      }
+    } catch (error) {
+      console.error('[文件历史] 加载失败:', error);
+      // 不中断流程
+    }
+    
     return state;
   }
 
@@ -208,6 +231,23 @@ ${styleHint}
       const fullMessages = [new SystemMessage(systemPrompt), ...messages];
       const response = await (this.agent as any).llmModel.invoke(fullMessages);
       state.agent_response = response.content || String(response);
+      
+      // 保存对话到文件历史
+      try {
+        const { RoleHistoryManager } = await import('../memory/role_history_manager');
+        const { HumanMessage, AIMessage } = await import('../agents/base_agent');
+        const roleHistoryManager = new RoleHistoryManager();
+        const agentId = (this.agent as any).agentId || 'unknown';
+        
+        // 保存用户消息和助手响应
+        await roleHistoryManager.addMessage(agentId, new HumanMessage(state.user_input));
+        await roleHistoryManager.addMessage(agentId, new AIMessage(state.agent_response));
+        
+        console.log(`[文件历史] 角色 ${agentId} 已保存对话到文件`);
+      } catch (error) {
+        console.error('[文件历史] 保存失败:', error);
+        // 不中断流程
+      }
     } else {
       state.agent_response = "[系统] 我还没有学会说话...";
     }

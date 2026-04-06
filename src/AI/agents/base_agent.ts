@@ -182,9 +182,30 @@ export class BaseAgent {
       return "[系统] 我还没有学会说话...";
     }
 
+    // 从文件加载历史上下文
+    let fileHistory: BaseMessage[] = [];
+    try {
+      const { RoleHistoryManager } = await import('../memory/role_history_manager');
+      const roleHistoryManager = new RoleHistoryManager();
+      
+      // 获取文件历史，限制token数
+      fileHistory = await roleHistoryManager.getContext(this.agentId, {
+        maxTokens: 8000  // 控制在8000 token以内
+      });
+      
+      console.log(`[BaseAgent] 角色 ${this.agentId} 从文件加载了 ${fileHistory.length} 条历史消息`);
+    } catch (error) {
+      console.error(`[BaseAgent] 加载文件历史失败:`, error);
+      // 如果加载失败，使用传入的 conversationHistory
+      fileHistory = conversationHistory;
+    }
+    
+    // 合并文件历史和当前对话
+    const allHistory = [...fileHistory, ...conversationHistory];
+
     // 格式化消息
     const messages = this.formatMessages(
-      [...conversationHistory, new HumanMessage(userMessage)],
+      [...allHistory, new HumanMessage(userMessage)],
       kwargs.memory_context,
       kwargs.emotion_context
     );
@@ -199,6 +220,21 @@ export class BaseAgent {
 
     // 增加对话次数
     this.conversationCount++;
+
+    // 保存对话到文件历史
+    try {
+      const { RoleHistoryManager } = await import('../memory/role_history_manager');
+      const roleHistoryManager = new RoleHistoryManager();
+      
+      // 保存用户消息和助手响应
+      await roleHistoryManager.addMessage(this.agentId, new HumanMessage(userMessage));
+      await roleHistoryManager.addMessage(this.agentId, new AIMessage(response.content || String(response)));
+      
+      console.log(`[BaseAgent] 角色 ${this.agentId} 已保存对话到文件`);
+    } catch (error) {
+      console.error(`[BaseAgent] 保存文件历史失败:`, error);
+      // 不中断流程，继续执行
+    }
 
     // 返回响应内容
     return response.content || String(response);

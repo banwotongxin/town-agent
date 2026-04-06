@@ -58,60 +58,126 @@ export class ConversationCompressor {
   }
 
   /**
-   * 使用大语言模型压缩对话
-   * @param messages 对话消息数组
+   * 计算文本的token数
+   * @param text 文本内容
+   * @returns 准确的token数
+   */
+  calculateTokenCount(text: string): number {
+    return TokenUtils.calculateTokenCount(text);
+  }
+
+  /**
+   * 第一层压缩：删除过期的工具记忆
+   * 保留最近的N个工具调用和结果
+   * @param messages 原始消息数组
+   * @param maxToolCalls 保留的最大工具调用数，默认3
+   * @returns 过滤后的消息数组
+   */
+  private removeExpiredToolMemories(
+    messages: BaseMessage[], 
+    maxToolCalls: number = 3
+  ): BaseMessage[] {
+    const filteredMessages: BaseMessage[] = [];
+    let toolCallCount = 0;
+    
+    // 从后往前遍历，保留最近的工具调用
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      
+      if (msg.type === 'tool' || msg.type === 'tool_result') {
+        if (toolCallCount < maxToolCalls) {
+          filteredMessages.unshift(msg);
+          toolCallCount++;
+        }
+        // 超过限制的工具调用被丢弃
+      } else {
+        // 非工具消息全部保留
+        filteredMessages.unshift(msg);
+      }
+    }
+    
+    console.log(`[第一层压缩] 删除过期工具记忆: ${messages.length} -> ${filteredMessages.length}`);
+    return filteredMessages;
+  }
+
+  /**
+   * 第二层压缩：提取关键对话
+   * 优先保留用户和助手的对话，移除冗余的系统消息
+   * @param messages 过滤后的消息数组
+   * @returns 关键对话消息数组
+   */
+  private extractKeyConversations(messages: BaseMessage[]): BaseMessage[] {
+    // 策略1：保留所有用户和助手消息
+    const keyMessages = messages.filter(msg => 
+      msg.type === 'human' || msg.type === 'ai'
+    );
+    
+    // 策略2：如果关键消息太少，保留部分工具消息
+    if (keyMessages.length < messages.length * 0.3) {
+      // 保留最近的几个工具消息
+      const toolMessages = messages
+        .filter(msg => msg.type === 'tool' || msg.type === 'tool_result')
+        .slice(-2);
+      
+      return [...keyMessages, ...toolMessages];
+    }
+    
+    console.log(`[第二层压缩] 提取关键对话: ${messages.length} -> ${keyMessages.length}`);
+    return keyMessages;
+  }
+
+  /**
+   * 第三层压缩：使用LLM进行智能压缩
+   * 生成语义完整的对话摘要
+   * @param messages 关键对话消息数组
    * @param existingSummary 现有摘要（如果有）
-   * @returns 压缩后的对话摘要
+   * @returns 压缩后的文本摘要
    */
   async compressWithLLM(
-    messages: BaseMessage[],
+    messages: BaseMessage[], 
     existingSummary?: string
   ): Promise<string> {
-    // 构建摘要提示词
-    const prompt = this.buildSummaryPrompt(messages, existingSummary);
+    if (!this.llmModel) {
+      console.warn('[警告] 未配置LLM模型，使用基础压缩');
+      return this.compress(messages, existingSummary);
+    }
     
-    // 如果有大语言模型，使用它生成摘要
-    if (this.llmModel) {
-      try {
-        const response = await this.llmModel.invoke([
-          {
-            type: 'system',
-            content: '请对以下对话进行总结，提取关键信息，保持语义完整。'
-          },
-          {
-            type: 'human',
-            content: prompt
-          }
-        ]);
-        
-        // 返回模型生成的摘要，如果没有内容则使用默认压缩
-        return response.content || this.compress(messages, existingSummary);
-      } catch (error) {
-        console.error('LLM 摘要压缩失败，使用默认压缩:', error);
-        // 出错时使用默认压缩
-        return this.compress(messages, existingSummary);
-      }
-    } else {
-      // 如果没有大语言模型，使用默认压缩
+    try {
+      // 构建提示词
+      const prompt = this.buildSummaryPrompt(messages, existingSummary);
+      
+      // 调用LLM生成摘要
+      const response = await this.llmModel.invoke([
+        {
+          type: 'system',
+          content: '你是一个专业的对话总结助手。请对以下对话进行精炼总结，提取关键信息，保持语义完整性。总结应该简洁但包含所有重要细节。'
+        },
+        {
+          type: 'human',
+          content: prompt
+        }
+      ]);
+      
+      const summary = response.content || this.compress(messages, existingSummary);
+      console.log(`[第三层压缩] AI压缩完成，生成摘要长度: ${summary.length}`);
+      
+      return summary;
+    } catch (error) {
+      console.error('[错误] LLM压缩失败，使用基础压缩:', error);
       return this.compress(messages, existingSummary);
     }
   }
 
   /**
    * 构建摘要提示词
-   * @param messages 对话消息数组
-   * @param existingSummary 现有摘要（如果有）
-   * @returns 构建好的提示词
    */
   private buildSummaryPrompt(messages: BaseMessage[], existingSummary?: string): string {
-    let prompt = '请对以下对话进行总结，提取关键信息，保持语义完整：\n\n';
+    let prompt = '请对以下对话进行总结：\n\n';
     
-    // 添加现有摘要（如果有）
     if (existingSummary) {
       prompt += `现有摘要：\n${existingSummary}\n\n`;
     }
     
-    // 添加对话内容
     prompt += '对话内容：\n';
     for (const msg of messages) {
       if (msg.type === 'human') {
@@ -125,42 +191,47 @@ export class ConversationCompressor {
       }
     }
     
-    prompt += '\n请生成一个简洁但信息完整的摘要。';
+    prompt += '\n请生成一个简洁但信息完整的摘要（不超过500字）。';
     return prompt;
   }
 
   /**
-   * 判断是否需要压缩对话
-   * @param messages 对话消息数组
-   * @param threshold 阈值，默认10条消息
-   * @returns 是否需要压缩
+   * 执行三层压缩
+   * @param messages 原始消息数组
+   * @param useLLM 是否使用LLM进行第三层压缩
+   * @returns 压缩后的消息数组或摘要
    */
-  shouldCompress(
+  async compressThreeLayers(
     messages: BaseMessage[],
-    threshold: number = 10
-  ): boolean {
-    return messages.length >= threshold;
-  }
-
-  /**
-   * 计算压缩率
-   * @param original 原始文本
-   * @param compressed 压缩后的文本
-   * @returns 压缩率（压缩后长度/原始长度）
-   */
-  getCompressionRatio(original: string, compressed: string): number {
-    if (!original) {
-      return 0.0;
+    useLLM: boolean = true
+  ): Promise<BaseMessage[]> {
+    console.log(`[三层压缩开始] 原始消息数: ${messages.length}`);
+    
+    // 第一层：删除过期工具记忆
+    let compressed = this.removeExpiredToolMemories(messages);
+    
+    // 第二层：提取关键对话
+    compressed = this.extractKeyConversations(compressed);
+    
+    // 第三层：AI压缩（如果需要）
+    if (useLLM && compressed.length > 5) {
+      try {
+        const summary = await this.compressWithLLM(compressed);
+        
+        // 将摘要转换为单条消息
+        return [new AIMessage(`[对话摘要]\n${summary}`, {
+          compression_type: 'three_layer',
+          original_count: messages.length,
+          compressed_count: 1,
+          timestamp: Date.now()
+        })];
+      } catch (error) {
+        console.error('[错误] 第三层压缩失败，返回第二层结果:', error);
+        return compressed;
+      }
     }
-    return compressed.length / original.length;
-  }
-
-  /**
-   * 计算文本的token数
-   * @param text 文本内容
-   * @returns 准确的token数
-   */
-  calculateTokenCount(text: string): number {
-    return TokenUtils.calculateTokenCount(text);
+    
+    console.log(`[三层压缩完成] 最终消息数: ${compressed.length}`);
+    return compressed;
   }
 }
