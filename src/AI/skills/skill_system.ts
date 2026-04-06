@@ -61,14 +61,57 @@ export class SkillManifestImpl implements SkillManifest {
   }
 
   /**
-   * 从YAML文件加载技能清单
-   * @param yamlPath YAML文件路径
-   * @returns 技能清单实例
+   * 从 Markdown 文件 (SKILL.md) 加载技能清单
    */
-  static fromYaml(yamlPath: string): SkillManifest {
-    // 这里需要实现从YAML文件加载的逻辑
-    // 暂时返回一个默认实例
-    return new SkillManifestImpl("", "");
+  static fromMarkdown(mdPath: string): SkillManifest {
+    try {
+      const content = fs.readFileSync(mdPath, 'utf-8');
+        
+      // 解析 frontmatter (YAML 头部)
+      const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+        
+      if (!frontmatterMatch) {
+        console.warn(`[SkillManifest] 文件 ${mdPath} 没有 frontmatter`);
+        return new SkillManifestImpl("", "");
+      }
+        
+      const frontmatter = frontmatterMatch[1];
+        
+      // 简单的 YAML 解析
+      const nameMatch = frontmatter.match(/name:\s*(.+)/);
+      const descMatch = frontmatter.match(/description:\s*(.+)/);
+        
+      const name = nameMatch ? nameMatch[1].trim() : "";
+      const description = descMatch ? descMatch[1].trim() : "";
+      
+      // 提取触发关键词
+      const triggerKeywords: string[] = [name];
+      const commonKeywords = [
+        '小说', '写小说', '创作', '故事', '续写', 
+        '角色', '世界观', '科幻', '奇幻', '悬疑', 
+        '言情', '武侠', '反派', '主角', '章节',
+        '魔法', '设计', '构建', '构思', '情节',
+        '人物', '背景', '设定', '大纲', '灵感'
+      ];
+      
+      commonKeywords.forEach(keyword => {
+        if (description.includes(keyword) && !triggerKeywords.includes(keyword)) {
+          triggerKeywords.push(keyword);
+        }
+      });
+        
+      return new SkillManifestImpl(
+        name,
+        description,
+        triggerKeywords,
+        undefined,
+        [],
+        content.substring(frontmatterMatch[0].length).trim() // 使用剩余内容作为 system prompt
+      );
+    } catch (error) {
+      console.error(`[SkillManifest] 读取 Markdown 文件失败 ${mdPath}:`, error);
+      return new SkillManifestImpl("", "");
+    }
   }
 
   /**
@@ -249,28 +292,35 @@ export class SkillRegistry {
    */
   loadSkillsFromDirectory(directory: string): number {
     let count = 0;
+    console.log(`[SkillRegistry] 正在从目录加载技能: ${directory}`);
 
     try {
       if (!fs.existsSync(directory)) {
+        console.log(`[SkillRegistry] 目录不存在: ${directory}`);
         return 0;
       }
 
       const files = fs.readdirSync(directory);
+      console.log(`[SkillRegistry] 目录中的文件: ${files.join(', ')}`);
+      
       for (const file of files) {
-        if (file.endsWith('.yaml') || file.endsWith('.yml')) {
+        // 只支持 Markdown 格式 (SKILL.md)
+        if (file.toLowerCase() === 'skill.md') {
           try {
-            const yamlPath = path.join(directory, file);
-            const manifest = SkillManifestImpl.fromYaml(yamlPath);
-
-            if (manifest.name in this.skillClasses) {
+            console.log(`[SkillRegistry] 正在解析技能文件: ${file}`);
+            const manifest = SkillManifestImpl.fromMarkdown(path.join(directory, file));
+            
+            if (manifest && manifest.name) {
+              console.log(`[SkillRegistry] 解析到技能名称: ${manifest.name}`);
               const skillClass = this.skillClasses[manifest.name];
-              const skill = new skillClass(manifest);
+              console.log(`[SkillRegistry] 查找技能类: ${manifest.name}, 找到: ${!!skillClass}`);
+              const skill = skillClass ? new skillClass(manifest) : new BaseSkill(manifest);
+              console.log(`[SkillRegistry] 创建技能实例，类型: ${skill.constructor.name}`);
               this.registerSkill(skill);
               count++;
+              console.log(`[SkillRegistry] 已加载技能: ${manifest.name}`);
             } else {
-              const skill = new BaseSkill(manifest);
-              this.registerSkill(skill);
-              count++;
+              console.log(`[SkillRegistry] 技能清单为空或名称为空`);
             }
           } catch (e) {
             console.error(`加载技能 ${file} 失败：`, e);
@@ -281,6 +331,7 @@ export class SkillRegistry {
       console.error(`加载技能目录失败：`, e);
     }
 
+    console.log(`[SkillRegistry] 从目录 ${directory} 加载了 ${count} 个技能`);
     return count;
   }
 
@@ -317,13 +368,19 @@ export class SkillRegistry {
    */
   findMatchingSkills(query: string): BaseSkill[] {
     const matching: BaseSkill[] = [];
+    console.log(`[SkillRegistry] 正在查找匹配的技能，查询: "${query.substring(0, 50)}..."`);
+    console.log(`[SkillRegistry] 当前注册的技能数量: ${Object.keys(this.skills).length}`);
+    console.log(`[SkillRegistry] 已注册的技能类: ${Object.keys(this.skillClasses).join(', ')}`);
 
     for (const skill of Object.values(this.skills)) {
+      console.log(`[SkillRegistry] 检查技能: ${skill.Manifest.name}, 类型: ${skill.constructor.name}`);
       if (skill.match(query)) {
+        console.log(`[SkillRegistry] 技能 ${skill.Manifest.name} 匹配成功!`);
         matching.push(skill);
       }
     }
 
+    console.log(`[SkillRegistry] 找到 ${matching.length} 个匹配的技能`);
     return matching;
   }
 
@@ -421,7 +478,39 @@ export const DEFAULT_SKILLS = [
  */
 export function createDefaultRegistry(): SkillRegistry {
   const registry = new SkillRegistry();
+  
+  // 注册自定义技能类（在加载之前注册）
+  try {
+    const { NovelWriterCnSkill } = require('./write/novel-writer-cn/index');
+    registry.registerSkillClass('novel-writer-cn', NovelWriterCnSkill);
+    console.log('[SkillRegistry] 已注册 novel-writer-cn 技能类');
+  } catch (error) {
+    console.warn('[SkillRegistry] 无法注册 novel-writer-cn 技能类:', error);
+  }
+  
+  // 加载 write 目录下的 Markdown skills
+  const writeSkillsDir = path.join(__dirname, 'write');
+  if (fs.existsSync(writeSkillsDir)) {
+    console.log('[SkillRegistry] 扫描 write 目录...');
+    const subdirs = fs.readdirSync(writeSkillsDir);
+    
+    for (const subdir of subdirs) {
+      const skillDir = path.join(writeSkillsDir, subdir);
+      const stats = fs.statSync(skillDir);
+      
+      if (stats.isDirectory()) {
+        const skillMdPath = path.join(skillDir, 'SKILL.md');
+        if (fs.existsSync(skillMdPath)) {
+          console.log(`[SkillRegistry] 发现技能目录: ${subdir}`);
+          registry.loadSkillsFromDirectory(skillDir);
+        }
+      }
+    }
+  }
+  
+  // 加载默认技能列表
   registry.loadSkillsFromList(DEFAULT_SKILLS);
+  
   return registry;
 }
 

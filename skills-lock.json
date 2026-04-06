@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "chinese-writing": {
+      "source": "miantiao-me/aigc-weekly",
+      "sourceType": "github",
+      "computedHash": "ee49c347183f228a01fc951c7ca81324b1662712945186b955a307fe6f2f624c"
+    },
+    "find-skills": {
+      "source": "vercel-labs/skills",
+      "sourceType": "github",
+      "computedHash": "645b891da1edbae76ab79c7b088d4e73397464f8396edaf773c0e01971ce75d6"
+    },
+    "inkos-multi-agent-novel-writing": {
+      "source": "aradotso/trending-skills",
+      "sourceType": "github",
+      "computedHash": "d2753d860a00b53b965340a02ecf68269dfcb7e8ed3e02437ed2d1e1d52fb1fd"
+    },
+    "novel-writer-cn": {
+      "source": "yangsonhung/awesome-agent-skills",
+      "sourceType": "github",
+      "computedHash": "0d8965294f21eac0dbcd867163398f2e68c6e6b9dd1c7336f811a828586132db"
+    },
+    "write-xiaohongshu": {
+      "source": "adjfks/corner-skills",
+      "sourceType": "github",
+      "computedHash": "0d8abcc4ebea4ad58e975692e3ca43b44735a73e3f0535f23c9b13ba821a3faf"
+    }
+  }
+}

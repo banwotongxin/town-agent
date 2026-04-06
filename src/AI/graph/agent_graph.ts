@@ -1,6 +1,7 @@
 // 导入消息相关类和双记忆系统
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '../agents/base_agent';
 import { DualMemorySystem } from '../memory/dual_memory';
+import { middlewarePreCheckNode, middlewareToolCheckNode, middlewarePostCheckNode } from './nodes/middleware_nodes';
 
 /**
  * 智能体状态接口，定义了智能体图的状态
@@ -97,6 +98,33 @@ export class AgentGraph {
    */
   async loadProfileNode(state: AgentState): Promise<AgentState> {
     return state;
+  }
+
+  /**
+   * 中间件前置检查节点
+   * @param state 智能体状态
+   * @returns 更新后的状态
+   */
+  async middlewarePreCheckNode(state: AgentState): Promise<AgentState> {
+    return await middlewarePreCheckNode(state);
+  }
+
+  /**
+   * 中间件工具检查节点
+   * @param state 智能体状态
+   * @returns 更新后的状态
+   */
+  async middlewareToolCheckNode(state: AgentState): Promise<AgentState> {
+    return await middlewareToolCheckNode(state);
+  }
+
+  /**
+   * 中间件后置检查节点
+   * @param state 智能体状态
+   * @returns 更新后的状态
+   */
+  async middlewarePostCheckNode(state: AgentState): Promise<AgentState> {
+    return await middlewarePostCheckNode(state);
   }
 
   /**
@@ -199,11 +227,87 @@ ${styleHint}
   }
 
   /**
+   * 调用技能节点
+   * @param state 智能体状态
+   * @returns 更新后的状态
+   */
+  async invokeSkillsNode(state: AgentState): Promise<AgentState> {
+    console.log('[技能调用] 匹配到的技能:', state.matched_skills);
+    
+    // 遍历所有匹配的技能
+    for (const skillName of state.matched_skills) {
+      const skill = this.skills.getSkill(skillName);
+      
+      if (!skill) {
+        console.warn(`[技能调用] 未找到技能: ${skillName}`);
+        continue;
+      }
+      
+      try {
+        console.log(`[技能调用] 执行技能: ${skillName}`);
+        
+        // 执行技能
+        const result = await skill.execute(
+          state.user_input,
+          {
+            agentId: (this.agent as any).agentId,
+            conversationHistory: state.messages
+          }
+        );
+        
+        // 检查是否是默认实现（未实现具体功能）
+        const isDefaultImplementation = result.includes('已激活，但尚未实现具体功能');
+        
+        // 如果技能有具体实现且返回了结果，直接使用
+        if (!isDefaultImplementation && result && result.trim().length > 0) {
+          console.log(`[技能调用] 技能 ${skillName} 执行成功`);
+          state.agent_response = result;
+          
+          // 保存对话到文件历史
+          try {
+            const { RoleHistoryManager } = await import('../memory/role_history_manager');
+            const { HumanMessage, AIMessage } = await import('../agents/base_agent');
+            const roleHistoryManager = new RoleHistoryManager();
+            const agentId = (this.agent as any).agentId || 'unknown';
+            
+            await roleHistoryManager.addMessage(agentId, new HumanMessage(state.user_input));
+            await roleHistoryManager.addMessage(agentId, new AIMessage(state.agent_response));
+            
+            console.log(`[文件历史] 角色 ${agentId} 已保存对话到文件`);
+          } catch (error) {
+            console.error('[文件历史] 保存失败:', error);
+          }
+          
+          // 标记为已完成，跳过 LLM 调用
+          state.should_continue = false;
+          return state;
+        } else if (isDefaultImplementation) {
+          console.log(`[技能调用] 技能 ${skillName} 使用默认实现，将通过系统提示增强 LLM`);
+          // 不设置 should_continue = false，让流程继续到 LLM 调用
+          // 技能的 system_prompt_enhancement 会在 invokeLlmNode 中被添加
+        }
+      } catch (error) {
+        console.error(`[技能调用] 技能 ${skillName} 执行失败:`, error);
+        // 继续尝试下一个技能
+      }
+    }
+    
+    console.log('[技能调用] 所有技能执行完毕，将继续 LLM 调用');
+    return state;
+  }
+
+  /**
    * 调用LLM节点
    * @param state 智能体状态
    * @returns 更新后的状态
    */
   async invokeLlmNode(state: AgentState): Promise<AgentState> {
+    // 如果技能已经处理完毕，跳过 LLM 调用
+    if (!state.should_continue) {
+      console.log('[LLM] 技能已处理，跳过 LLM 调用');
+      return state;
+    }
+    
     const messages = [...state.messages, new HumanMessage(state.user_input)];
 
     let systemPrompt = (this.agent as any).getSystemPrompt();
@@ -322,8 +426,15 @@ ${styleHint}
 
     let state = this.state;
 
-    // 1. 中间件前置检查
-    // 暂时跳过，后续实现
+    // 1. 中间件前置检查（安全检查）
+    state = await this.middlewarePreCheckNode(state);
+    if (!state.should_continue) {
+      return {
+        response: state.agent_response,
+        matched_skills: state.matched_skills,
+        memory_state: this.memory.getState()
+      };
+    }
 
     // 2. 加载档案
     state = await this.loadProfileNode(state);
@@ -334,25 +445,51 @@ ${styleHint}
     // 4. 匹配技能
     state = await this.skillMatchNode(state);
 
-    // 5. 中间件工具检查
-    // 暂时跳过，后续实现
+    // 5. 调用技能（如果匹配到）
+    if (state.matched_skills.length > 0) {
+      state = await this.invokeSkillsNode(state);
+      
+      // 如果技能已经处理完毕，跳过后续步骤
+      if (!state.should_continue) {
+        // 但仍需要执行后置中间件检查
+        state = await this.middlewarePostCheckNode(state);
+        
+        this.state = state;
+        return {
+          response: state.agent_response,
+          matched_skills: state.matched_skills,
+          memory_state: this.memory.getState()
+        };
+      }
+    }
 
-    // 6. 注入情感上下文
+    // 6. 中间件工具检查（在 LLM 调用前）
+    state = await this.middlewareToolCheckNode(state);
+    if (!state.should_continue) {
+      this.state = state;
+      return {
+        response: state.agent_response,
+        matched_skills: state.matched_skills,
+        memory_state: this.memory.getState()
+      };
+    }
+
+    // 7. 注入情感上下文
     state = await this.injectEmotionContextNode(state);
 
-    // 7. 加载 MCP（如果需要）
+    // 8. 加载 MCP（如果需要）
     state = await this.loadMcpNode(state);
 
-    // 8. 调用 LLM
+    // 9. 调用 LLM
     state = await this.invokeLlmNode(state);
 
-    // 9. 中间件后置检查
-    // 暂时跳过，后续实现
+    // 10. 中间件后置检查（安全检查输出）
+    state = await this.middlewarePostCheckNode(state);
 
-    // 10. 保存记忆
+    // 11. 保存记忆
     state = await this.saveMemoryNode(state);
 
-    // 11. 评估情感
+    // 12. 评估情感
     state = await this.evaluateEmotionNode(state);
 
     this.state = state;

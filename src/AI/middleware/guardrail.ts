@@ -66,7 +66,15 @@ export class GuardrailMiddleware extends BaseMiddleware {
 
   private _detectBlacklistedInput(input: string): boolean {
     const blacklistedPatterns = this.config.getInputBlacklist();
-    return blacklistedPatterns.some(pattern => new RegExp(pattern).test(input));
+    return blacklistedPatterns.some(pattern => {
+      try {
+        return new RegExp(pattern).test(input);
+      } catch (error) {
+        // 如果正则表达式无效，使用字符串包含检查
+        console.warn(`[Guardrail] 无效的正则表达式: ${pattern}，使用字符串匹配`);
+        return input.includes(pattern.replace(/[.*+?^${}()|[\]\\]/g, ''));
+      }
+    });
   }
 
   private _filterBlacklistedOutput(output: string): string {

@@ -3,6 +3,7 @@ import { BaseMessage, HumanMessage, AIMessage, BaseAgent, createBaseAgent } from
 import { AgentGraph, AgentState } from './agent_graph';
 import { DualMemorySystem, createMemorySystem } from '../memory/dual_memory';
 import { DEFAULT_PROFILES } from '../agents/models';
+import { getSkillRegistry as getRealSkillRegistry } from '../skills/skill_system';
 
 /**
  * 小镇状态接口，定义了小镇的状态
@@ -40,11 +41,14 @@ export interface EmotionEngine {
  * @returns 技能注册表实例
  */
 export function getSkillRegistry(): SkillRegistry {
+  // 使用真实的技能注册表
+  const realRegistry = getRealSkillRegistry();
+  
   return {
-    get_all_skills: () => [],
-    cleanup_all: async () => {},
-    findMatchingSkills: (input: string) => [],
-    getSkill: (name: string) => null
+    get_all_skills: () => realRegistry.getAllSkills(),
+    cleanup_all: () => realRegistry.cleanupAll(),
+    findMatchingSkills: (input: string) => realRegistry.findMatchingSkills(input),
+    getSkill: (name: string) => realRegistry.getSkill(name)
   };
 }
 
