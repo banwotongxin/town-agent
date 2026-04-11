@@ -5,6 +5,14 @@ import { BaseMessage, HumanMessage, AIMessage } from './base_agent';
  * 用于从对话中提取会话记忆
  */
 export class MemoryExtractionAgent {
+  private apiKey: string;
+  private baseURL: string;
+
+  constructor(apiKey?: string, baseURL?: string) {
+    this.apiKey = apiKey || process.env.QWEN_API_KEY || '';
+    this.baseURL = baseURL || process.env.QWEN_BASE_URL || 'https://dashscope.aliyuncs.com/api/v1';
+  }
+
   /**
    * 提取会话记忆
    * @param messages 对话消息数组
@@ -14,9 +22,8 @@ export class MemoryExtractionAgent {
     // 构建提取提示词
     const prompt = this.buildExtractionPrompt(messages);
     
-    // 这里应该调用实际的LLM API，现在使用模拟实现
-    // 在实际应用中，应该使用OpenAI API或其他LLM服务
-    const extractedMemory = await this.simulateLLMResponse(prompt);
+    // 调用真实的LLM API
+    const extractedMemory = await this.callLLMAPI(prompt);
     
     return extractedMemory;
   }
@@ -59,12 +66,71 @@ export class MemoryExtractionAgent {
   }
 
   /**
-   * 模拟LLM响应
+   * 调用LLM API
+   * @param prompt 提示词
+   * @returns LLM响应
+   */
+  private async callLLMAPI(prompt: string): Promise<string> {
+    try {
+      if (!this.apiKey) {
+        console.warn('未配置API密钥，使用模拟响应');
+        return this.simulateLLMResponse(prompt);
+      }
+
+      const response = await fetch(`${this.baseURL}/services/aigc/text-generation/generation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'qwen-plus',
+          input: {
+            messages: [
+              {
+                role: 'user',
+                content: prompt
+              }
+            ]
+          },
+          parameters: {
+            temperature: 0.7,
+            max_tokens: 2000
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('LLM API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json() as any;
+      
+      // Qwen API 返回格式: { output: { text: "..." } }
+      if (data.output && data.output.text) {
+        return data.output.text;
+      }
+      
+      throw new Error('Invalid response format from LLM API');
+    } catch (error) {
+      console.error('LLM API调用失败，使用模拟响应:', error instanceof Error ? error.message : error);
+      // 出错时返回模拟响应
+      return this.simulateLLMResponse(prompt);
+    }
+  }
+
+  /**
+   * 模拟LLM响应（备用方案）
    * @param prompt 提示词
    * @returns 模拟的LLM响应
    */
-  private async simulateLLMResponse(prompt: string): Promise<string> {
-    // 模拟LLM响应，实际应用中应该调用真实的LLM API
+  private simulateLLMResponse(prompt: string): string {
     return `# 会话标题：内存系统优化
 
 # 当前状态

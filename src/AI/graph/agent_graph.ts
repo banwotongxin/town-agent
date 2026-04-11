@@ -14,6 +14,8 @@ export interface AgentState {
   emotion_context: string;      // 情感上下文
   matched_skills: string[];     // 匹配的技能
   should_continue: boolean;     // 是否继续处理
+  agent_id?: string;            // 智能体ID（可选）
+  agent_name?: string;          // 智能体名称（可选）
 }
 
 /**
@@ -87,7 +89,9 @@ export class AgentGraph {
       memory_context: "",
       emotion_context: "",
       matched_skills: [],
-      should_continue: true
+      should_continue: true,
+      agent_id: (agent as any).AgentId || 'unknown',  // 从 agent 对象获取 agentId
+      agent_name: (agent as any).Profile?.name || 'unknown'  // 从 agent 的 profile 获取 name
     };
   }
 
@@ -330,9 +334,61 @@ ${styleHint}
       }
     }
 
+    // ★ Layer 4: 预防性压缩决策
+    try {
+      const { decideCompactionRoute, CompactionRoute } = await import('../memory/preemptive_compaction');
+      const { truncateAggregateToolResults } = await import('../memory/tool_result_truncation');
+      const { activeCompact } = await import('../memory/active_compaction');
+      
+      const routeInfo = decideCompactionRoute(
+        messages,
+        systemPrompt,
+        state.user_input,
+        8000,  // context_token_budget
+        4096   // reserve_tokens (SUMMARIZATION_OVERHEAD)
+      );
+      
+      console.log(`[预防性压缩] 路由: ${routeInfo.route}, 预估 tokens: ${routeInfo.estimatedTokens}, 溢出: ${routeInfo.overflowTokens}`);
+      
+      let processedMessages = messages;
+      
+      switch (routeInfo.route) {
+        case CompactionRoute.TRUNCATE_TOOL_RESULTS_ONLY:
+        case CompactionRoute.COMPACT_THEN_TRUNCATE:
+          // 应用 Layer 3 - 工具结果截断
+          console.log('[预防性压缩] 应用工具结果截断');
+          processedMessages = truncateAggregateToolResults(processedMessages, 8000);
+          break;
+      }
+      
+      if (routeInfo.shouldCompact) {
+        // 应用 Layer 5 - 主动压缩
+        const llmModel = (this.agent as any).llmModel;
+        if (llmModel && processedMessages.length > 10) {
+          console.log('[预防性压缩] 应用主动压缩');
+          const result = await activeCompact(
+            processedMessages.slice(0, -1), // 移除最后一条用户消息
+            8000,
+            llmModel
+          );
+          processedMessages = [...result.keptMessages, processedMessages[processedMessages.length - 1]];
+          console.log(`[预防性压缩] 压缩完成: ${result.tokensBefore} → ${result.tokensAfter} tokens`);
+        }
+      }
+      
+      // 使用处理后的消息
+      state.messages = processedMessages.slice(0, -1); // 保存除最后一条用户消息外的所有消息
+    } catch (error) {
+      console.error('[预防性压缩失败，继续正常流程]:', error);
+      // 不中断流程，使用原始消息
+    }
+
+    // 重新构建消息（可能已被压缩）
+    const finalMessages = [...state.messages, new HumanMessage(state.user_input)];
+
     // 调用语言模型
     if ((this.agent as any).llmModel) {
-      const fullMessages = [new SystemMessage(systemPrompt), ...messages];
+      const fullMessages = [new SystemMessage(systemPrompt), ...finalMessages];
       const response = await (this.agent as any).llmModel.invoke(fullMessages);
       state.agent_response = response.content || String(response);
       
@@ -421,7 +477,9 @@ ${styleHint}
       memory_context: "",
       emotion_context: "",
       matched_skills: [],
-      should_continue: true
+      should_continue: true,
+      agent_id: (this.agent as any).AgentId || 'unknown',  // 从 agent 对象获取 agentId
+      agent_name: (this.agent as any).Profile?.name || 'unknown'  // 从 agent 的 profile 获取 name
     };
 
     let state = this.state;
@@ -445,7 +503,12 @@ ${styleHint}
     // 4. 匹配技能
     state = await this.skillMatchNode(state);
 
-    // 5. 调用技能（如果匹配到）
+    // 5. 加载 MCP（如果技能有依赖）
+    if (state.matched_skills.length > 0) {
+      state = await this.loadMcpNode(state);
+    }
+
+    // 6. 调用技能（如果匹配到）
     if (state.matched_skills.length > 0) {
       state = await this.invokeSkillsNode(state);
       
@@ -463,7 +526,7 @@ ${styleHint}
       }
     }
 
-    // 6. 中间件工具检查（在 LLM 调用前）
+    // 7. 中间件工具检查（在 LLM 调用前）
     state = await this.middlewareToolCheckNode(state);
     if (!state.should_continue) {
       this.state = state;
@@ -474,11 +537,8 @@ ${styleHint}
       };
     }
 
-    // 7. 注入情感上下文
+    // 8. 注入情感上下文
     state = await this.injectEmotionContextNode(state);
-
-    // 8. 加载 MCP（如果需要）
-    state = await this.loadMcpNode(state);
 
     // 9. 调用 LLM
     state = await this.invokeLlmNode(state);

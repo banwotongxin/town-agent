@@ -1,96 +1,148 @@
 /**
  * 赛博小镇 Web 服务器
- * 提供前端页面和API接口，支持智能体交互和团队任务执行
+ * 
+ * 这是整个项目的后端服务器，负责：
+ * 1. 提供前端页面给用户访问
+ * 2. 处理用户与角色的对话请求
+ * 3. 管理团队的创建和任务执行
+ * 4. 调用AI模型生成智能回复
+ * 
+ * 就像是一个餐厅的服务员，接收顾客的点单（用户请求），
+ * 然后交给厨师（AI模型）处理，最后把做好的菜（回复）端给顾客。
  */
+
+// 导入Express框架 - 用于创建Web服务器
 import express from 'express';
+// 导入CORS中间件 - 允许跨域访问，让前端可以正常调用API
 import cors from 'cors';
+// 导入path模块 - 用于处理文件路径
 import path from 'path';
+// 导入fs模块 - 用于读取文件
 import fs from 'fs';
+// 导入创建默认小镇的函数 - 初始化8个角色
 import { createDefaultTown } from './AI/graph/town_graph';
+// 导入创建团队智能体的函数 - 用于团队协作任务
 import { createTeamAgent } from './AI/agents/team_agent';
+// 导入消息类型定义 - 用于对话历史
 import { BaseMessage } from './AI/agents/base_agent';
 
 // 创建Express应用实例
+// Express是一个Web框架，就像是一个工具箱，帮我们快速搭建网站服务器
 const app = express();
-// 默认端口
+// 默认端口号 - 服务器运行在这个端口上，用户可以通过 http://localhost:8888 访问
 let PORT = 8888;
 
 // 启用CORS（跨域资源共享）
+// 这就像是给服务器开了一扇窗，允许其他网站（前端页面）访问我们的API
 app.use(cors());
 // 解析JSON请求体
+// 当用户发送数据时，这个功能帮我们把JSON格式的数据转换成JavaScript对象，方便处理
 app.use(express.json());
 
 // 全局变量存储小镇实例
+// 就像是一个大容器，里面装着整个小镇和所有角色
 let townInstance: any = null;
 
 // 存储团队实例的全局字典
+// 字典的键是团队ID，值是团队对象
+// 可以理解为多个团队的名单表
 const teams: Record<string, any> = {};
 
 /**
  * DeepSeek模型类
- * 用于调用DeepSeek API进行AI对话
+ * 
+ * 这个类负责与DeepSeek AI模型进行通信。
+ * DeepSeek是一个人工智能模型，就像是一个非常聪明的机器人，
+ * 能够理解人类语言并生成智能回复。
+ * 
+ * 这个类的作用就是：
+ * 1. 把用户的消息发送给DeepSeek
+ * 2. 接收DeepSeek的回复
+ * 3. 把回复返回给用户
  */
 class DeepSeekModel {
-  // API密钥
+  // API密钥 - 就像是访问DeepSeek服务的密码，证明我们有使用权
   private apiKey: string;
-  // API基础URL
+  // API基础URL - DeepSeek服务的网络地址
   private baseUrl: string;
 
   /**
-   * 构造函数
-   * @param apiKey DeepSeek API密钥
+   * 构造函数 - 创建DeepSeekModel实例时自动调用
+   * 
+   * @param apiKey DeepSeek API密钥，从.env文件中读取
    */
   constructor(apiKey: string) {
+    // 保存API密钥，后续发送请求时需要用到
     this.apiKey = apiKey;
+    // 设置DeepSeek API的地址
     this.baseUrl = 'https://api.deepseek.com/v1/chat/completions';
   }
 
   /**
-   * 调用LLM模型
-   * @param messages 消息数组
-   * @returns 模型响应
+   * 调用LLM模型 - 向DeepSeek发送消息并获取回复
+   * 
+   * 这个过程就像是：
+   * 1. 把用户的问题打包好
+   * 2. 通过网络发送给DeepSeek
+   * 3. 等待DeepSeek思考并生成回复
+   * 4. 收到回复后返回给用户
+   * 
+   * @param messages 消息数组，包含对话历史
+   * @returns 模型的回复内容
    */
   async invoke(messages: BaseMessage[]): Promise<{ content: string }> {
     try {
-      // 转换消息格式以适应DeepSeek API
+      // 转换消息格式以适应DeepSeek API的要求
+      // DeepSeek需要的格式是：{role: 'user', content: '消息内容'}
+      // 而我们的格式是：{type: 'human', content: '消息内容'}
+      // 所以需要做一个转换
       const formattedMessages = messages.map(msg => {
+        // 默认角色是'user'（用户）
         let role = 'user';
+        // 如果消息类型是'system'，说明是系统提示，角色设为'system'
         if (msg.type === 'system') {
           role = 'system';
+        // 如果消息类型是'ai'，说明是AI之前的回复，角色设为'assistant'
         } else if (msg.type === 'ai') {
           role = 'assistant';
         }
+        // 返回DeepSeek需要的格式
         return { role, content: msg.content };
       });
 
-      // 发送API请求
+      // 发送API请求到DeepSeek服务器
+      // fetch是JavaScript内置的网络请求函数
       const response = await fetch(this.baseUrl, {
-        method: 'POST',
+        method: 'POST',  // 使用POST方法发送数据
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
+          'Content-Type': 'application/json',  // 告诉服务器我们发送的是JSON数据
+          'Authorization': `Bearer ${this.apiKey}`  // 带上API密钥进行身份验证
         },
         body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: formattedMessages,
-          temperature: 0.7,
-          max_tokens: 500
+          model: 'deepseek-chat',  // 使用的模型名称
+          messages: formattedMessages,  // 转换后的消息数组
+          temperature: 0.7,  // 温度参数，控制回复的创造性（0-1之间，越高越有创造性）
+          max_tokens: 500  // 最大回复长度，限制在500个token以内
         })
       });
 
       // 检查响应状态
+      // 如果response.ok为false，说明请求失败（比如网络错误、API密钥错误等）
       if (!response.ok) {
         throw new Error(`API请求失败: ${response.status} ${response.statusText}`);
       }
 
       // 解析响应数据
+      // 把服务器返回的JSON字符串转换成JavaScript对象
       const data: any = await response.json();
+      // 返回DeepSeek生成的回复内容
       return {
         content: data.choices[0].message.content
       };
     } catch (error) {
+      // 如果发生错误（比如网络断开、API密钥错误等），记录错误信息
       console.error('LLM调用失败:', error);
-      // 出错时返回默认响应
+      // 出错时返回一个默认的友好提示，而不是让程序崩溃
       return {
         content: '[系统] 暂时无法回答你的问题，请稍后再试。'
       };
@@ -99,53 +151,72 @@ class DeepSeekModel {
 }
 
 /**
- * 创建LLM模型实例
+ * 创建LLM模型实例的辅助函数
+ * 
  * @param apiKey API密钥
- * @returns LLM模型实例
+ * @returns LLM模型实例，用于与DeepSeek通信
  */
 function createLLMModel(apiKey: string): any {
+  // 创建并返回一个新的DeepSeekModel实例
   return new DeepSeekModel(apiKey);
 }
 
-// 获取当前文件所在目录
+// 获取当前文件所在目录的路径
+// __dirname是当前文件所在的目录路径
 const BASE_DIR = path.dirname(__dirname);
+// 构建.env文件的完整路径
 const envPath = path.join(BASE_DIR, '.env');
 
 /**
- * 加载API密钥
- * @returns API密钥或null
+ * 加载API密钥 - 从环境变量或.env文件中读取DeepSeek API密钥
+ * 
+ * API密钥就像是访问DeepSeek服务的通行证，没有它就无法使用AI功能。
+ * 这个函数会先尝试从环境变量中读取，如果找不到，再从.env文件中读取。
+ * 
+ * @returns API密钥字符串，如果找不到则返回null
  */
 function loadApiKey(): string | null {
-  // 从环境变量加载API Key
+  // 首先尝试从环境变量中读取API Key
+  // 环境变量是操作系统级别的配置，比较安全
   const apiKey = process.env.DEEPSEEK_API_KEY;
   if (apiKey) {
+    // 如果找到了，直接返回
     return apiKey;
   }
 
-  // 从.env文件直接读取API Key作为备用方案
+  // 如果环境变量中没有，尝试从.env文件直接读取API Key作为备用方案
+  // .env文件是一个配置文件，存储敏感信息（如API密钥）
   try {
+    // 读取.env文件的内容
     const content = fs.readFileSync(envPath, 'utf-8');
+    // 按行分割文件内容
     const lines = content.split('\n');
     let deepseekKey: string | null = null;
+    // 逐行查找API密钥
     for (const line of lines) {
-      const trimmedLine = line.trim();
+      const trimmedLine = line.trim();  // 去除首尾空格
+      // 如果这一行以'DEEPSEEK_API_KEY='开头，说明是我们要找的API密钥
       if (trimmedLine.startsWith('DEEPSEEK_API_KEY=')) {
+        // 提取等号后面的值，就是API密钥
         deepseekKey = trimmedLine.split('=', 2)[1];
       } else if (trimmedLine.startsWith('HUGGINGFACE_API_KEY=')) {
-        // 同时加载Hugging Face API密钥到环境变量
+        // 同时加载Hugging Face API密钥到环境变量（用于其他AI功能）
         process.env.HUGGINGFACE_API_KEY = trimmedLine.split('=', 2)[1];
       } else if (trimmedLine.startsWith('QWEN_API_KEY=')) {
-        // 加载Qwen API密钥到环境变量
+        // 加载Qwen API密钥到环境变量（阿里通义千问模型）
         process.env.QWEN_API_KEY = trimmedLine.split('=', 2)[1];
       } else if (trimmedLine.startsWith('QWEN_BASE_URL=')) {
         // 加载Qwen Base URL到环境变量
         process.env.QWEN_BASE_URL = trimmedLine.split('=', 2)[1];
       }
     }
+    // 返回找到的DeepSeek API密钥
     return deepseekKey;
   } catch (e) {
+    // 如果读取文件失败（比如文件不存在），记录错误
     console.error(`[ERROR] 读取 .env 文件失败:`, e);
   }
+  // 如果都没找到，返回null
   return null;
 }
 

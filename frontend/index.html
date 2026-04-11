@@ -216,38 +216,51 @@
     </div>
 
     <script>
-        const canvas = document.getElementById('townMap');
-        const ctx = canvas.getContext('2d');
-        const statusDiv = document.getElementById('status');
-        const agentInfoDiv = document.getElementById('agentInfo');
-        const chatMessages = document.getElementById('chatMessages');
-        const messageInput = document.getElementById('messageInput');
+        // ==================== 赛博小镇前端 JavaScript 代码 ====================
+        // 
+        // 这个脚本负责前端的交互逻辑，包括：
+        // 1. 绘制小镇地图和角色
+        // 2. 处理用户移动（键盘控制）
+        // 3. 检测用户与角色的距离
+        // 4. 发送消息到后端并显示回复
+        // 5. 显示角色信息
+        
+        // 获取HTML元素
+        const canvas = document.getElementById('townMap');  // 画布元素，用于绘制小镇地图
+        const ctx = canvas.getContext('2d');  // 2D绘图上下文，用于在画布上画图
+        const statusDiv = document.getElementById('status');  // 状态显示区域
+        const agentInfoDiv = document.getElementById('agentInfo');  // 角色信息显示区域
+        const chatMessages = document.getElementById('chatMessages');  // 聊天消息显示区域
+        const messageInput = document.getElementById('messageInput');  // 消息输入框
 
-        let agents = [];
-        let userPosition = { x: 50, y: 50 };
-        let selectedAgent = null;
-        let conversationHistory = [];
-        let userCursor = { visible: true, x: 0, y: 0 };
+        // 全局变量
+        let agents = [];  // 角色列表，从服务器加载
+        let userPosition = { x: 50, y: 50 };  // 用户在地图上的位置（百分比坐标）
+        let selectedAgent = null;  // 当前选中的角色（靠近的角色）
+        let conversationHistory = [];  // 对话历史，保存与角色的聊天记录
+        let userCursor = { visible: true, x: 0, y: 0 };  // 用户光标状态
 
+        // 角色颜色配置 - 每个职业对应一个颜色
         const AGENT_COLORS = {
-            '作家': '#e91e63',
-            '医生': '#4caf50',
-            '程序员': '#2196f3',
-            '教师': '#ff9800',
-            '艺术家': '#9c27b0',
-            '工程师': '#00bcd4',
-            '科学家': '#795548',
-            '商人': '#607d8b'
+            '作家': '#e91e63',      // 粉红色
+            '医生': '#4caf50',      // 绿色
+            '程序员': '#2196f3',    // 蓝色
+            '教师': '#ff9800',      // 橙色
+            '艺术家': '#9c27b0',    // 紫色
+            '工程师': '#00bcd4',    // 青色
+            '科学家': '#795548',    // 棕色
+            '商人': '#607d8b'       // 灰蓝色
         };
 
+        // 角色图标配置 - 每个职业对应一个emoji图标
         const AGENT_ICONS = {
-            '作家': '✒️',
-            '医生': '⚕️',
-            '程序员': '💻',
-            '教师': '📚',
-            '艺术家': '🎨',
-            '工程师': '🔧',
-            '科学家': '🔬',
+            '作家': '✒️',      // 钢笔
+            '医生': '⚕️',      // 医疗符号
+            '程序员': '💻',    // 电脑
+            '教师': '📚',      // 书籍
+            '艺术家': '🎨',    // 调色板
+            '工程师': '🔧',    // 扳手
+            '科学家': '🔬',    // 显微镜
             '商人': '💼'
         };
 
@@ -262,33 +275,53 @@
             '商人': 'https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=anime%20businessman%20character%20cute%20style&image_size=square'
         };
 
-        // 预加载图像
+        // 预加载二次元角色图像
+        // 这样在绘制时可以快速显示，不需要等待图片加载
         const characterImages = {};
         Object.keys(ANIME_CHARACTERS).forEach(profession => {
-            const img = new Image();
-            img.src = ANIME_CHARACTERS[profession];
-            characterImages[profession] = img;
+            const img = new Image();  // 创建一个新的图片对象
+            img.src = ANIME_CHARACTERS[profession];  // 设置图片URL
+            characterImages[profession] = img;  // 保存到字典中
         });
 
+        /**
+         * 调整画布大小 - 当窗口大小改变时调用
+         * 
+         * 这个函数确保画布始终适应容器的大小。
+         * 就像是给画框换不同大小的画布。
+         */
         function resizeCanvas() {
-            const container = canvas.parentElement;
-            canvas.width = container.clientWidth - 40;
-            canvas.height = container.clientHeight - 100;
-            drawMap();
+            const container = canvas.parentElement;  // 获取画布的父容器
+            canvas.width = container.clientWidth - 40;   // 设置宽度（减去40像素留边距）
+            canvas.height = container.clientHeight - 100; // 设置高度（减去100像素留给控制按钮）
+            drawMap();  // 重新绘制地图
         }
 
+        /**
+         * 绘制地图 - 在画布上绘制整个小镇
+         * 
+         * 这个函数是绘制的核心，按顺序绘制：
+         * 1. 清空画布
+         * 2. 绘制背景网格
+         * 3. 绘制建筑物
+         * 4. 绘制所有角色
+         * 5. 绘制用户
+         */
         function drawMap() {
+            // 清空画布 - 清除之前绘制的所有内容
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // 绘制背景网格
-            ctx.strokeStyle = '#e0e0e0';
-            ctx.lineWidth = 1;
+            // 绘制背景网格 - 让地图看起来更有条理
+            ctx.strokeStyle = '#e0e0e0';  // 设置线条颜色为浅灰色
+            ctx.lineWidth = 1;  // 设置线条宽度为1像素
+            // 绘制垂直线
             for (let x = 0; x < canvas.width; x += 50) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, canvas.height);
-                ctx.stroke();
+                ctx.beginPath();  // 开始一条新路径
+                ctx.moveTo(x, 0);  // 移动到起点 (x, 0)
+                ctx.lineTo(x, canvas.height);  // 画线到终点 (x, 高度)
+                ctx.stroke();  // 绘制路径
             }
+            // 绘制水平线
             for (let y = 0; y < canvas.height; y += 50) {
                 ctx.beginPath();
                 ctx.moveTo(0, y);
@@ -296,15 +329,15 @@
                 ctx.stroke();
             }
 
-            // 绘制建筑物
+            // 绘制建筑物 - 图书馆、医院等
             drawBuildings();
 
-            // 绘制智能体
+            // 绘制所有角色 - 遍历角色列表，逐个绘制
             agents.forEach(agent => {
                 drawAgent(agent);
             });
 
-            // 绘制用户
+            // 绘制用户 - 显示用户在地图上的位置
             drawUser();
         }
 
@@ -399,45 +432,80 @@
             ctx.fillText('你', x, y + 30);
         }
 
+        /**
+         * 向上移动 - 用户按上键或W键时调用
+         * 
+         * 就像是控制游戏角色向上走。
+         */
         function moveUp() {
+            // 减少y坐标（向上移动），但不小于5（边界限制）
             userPosition.y = Math.max(5, userPosition.y - 5);
-            drawMap();
-            checkProximity();
+            drawMap();  // 重新绘制地图，显示新位置
+            checkProximity();  // 检查是否靠近某个角色
         }
 
+        /**
+         * 向下移动 - 用户按下键或S键时调用
+         */
         function moveDown() {
+            // 增加y坐标（向下移动），但不大于95（边界限制）
             userPosition.y = Math.min(95, userPosition.y + 5);
             drawMap();
             checkProximity();
         }
 
+        /**
+         * 向左移动 - 用户按左键或A键时调用
+         */
         function moveLeft() {
+            // 减少x坐标（向左移动），但不小于5（边界限制）
             userPosition.x = Math.max(5, userPosition.x - 5);
             drawMap();
             checkProximity();
         }
 
+        /**
+         * 向右移动 - 用户按右键或D键时调用
+         */
         function moveRight() {
+            // 增加x坐标（向右移动），但不大于95（边界限制）
             userPosition.x = Math.min(95, userPosition.x + 5);
             drawMap();
             checkProximity();
         }
 
+        /**
+         * 重置位置 - 把用户移回地图中心
+         * 
+         * 就像是游戏中的“重生”功能。
+         */
         function resetPosition() {
-            userPosition = { x: 50, y: 50 };
+            userPosition = { x: 50, y: 50 };  // 设置为中心位置 (50%, 50%)
             drawMap();
             checkProximity();
         }
 
+        /**
+         * 检查距离 - 检测用户是否靠近某个角色
+         * 
+         * 这个函数计算用户与每个角色的距离，
+         * 如果距离小于阈值（15），就认为用户靠近了这个角色。
+         * 
+         * 就像是在游戏中进入NPC的对话范围。
+         */
         function checkProximity() {
-            const threshold = 15;
-            let nearbyAgent = null;
+            const threshold = 15;  // 距离阈值，小于这个值就算“靠近”
+            let nearbyAgent = null;  // 初始化 nearbyAgent 为 null
 
+            // 遍历所有角色，计算距离
             agents.forEach(agent => {
+                // 使用勾股定理计算两点之间的距离
+                // distance = sqrt((x2-x1)^2 + (y2-y1)^2)
                 const distance = Math.sqrt(
-                    Math.pow(userPosition.x - agent.x, 2) + 
-                    Math.pow(userPosition.y - agent.y, 2)
+                    Math.pow(userPosition.x - agent.x, 2) +  // x轴距离的平方
+                    Math.pow(userPosition.y - agent.y, 2)     // y轴距离的平方
                 );
+                // 如果距离小于阈值，说明用户靠近了这个角色
                 if (distance < threshold) {
                     nearbyAgent = agent;
                 }
@@ -501,55 +569,90 @@
             }
         }
 
+        /**
+         * 发送消息 - 用户与角色对话的核心功能
+         * 
+         * 这个函数处理用户发送消息的完整流程：
+         * 1. 获取用户输入
+         * 2. 检查是否靠近角色
+         * 3. 显示用户消息
+         * 4. 发送请求到后端服务器
+         * 5. 等待AI回复
+         * 6. 显示角色回复
+         * 7. 更新对话历史
+         * 
+         * 就像是在微信上发消息：
+         * - 输入文字
+         * - 点击发送
+         * - 看到“对方正在输入...”
+         * - 收到回复
+         */
         async function sendMessage() {
+            // 获取用户输入的消息，并去除首尾空格
             const message = messageInput.value.trim();
+            // 如果消息为空，直接返回，不发送
             if (!message) return;
 
+            // 检查是否靠近某个角色
+            // 如果没有选中的角色，提示用户先移动到角色附近
             if (!selectedAgent) {
                 addSystemMessage('请先移动到某个角色附近！');
                 return;
             }
 
+            // 在聊天窗口显示用户的消息
             addUserMessage(message);
+            // 清空输入框，准备下一次输入
             messageInput.value = '';
 
-            // 显示加载状态
+            // 显示加载状态 - “正在思考..."
+            // 这样用户知道系统正在处理，不会以为卡住了
             const loadingDiv = document.createElement('div');
             loadingDiv.className = 'message loading';
             loadingDiv.innerHTML = `<div class="message-sender">${selectedAgent.name}</div>正在思考...`;
             chatMessages.appendChild(loadingDiv);
+            // 滚动到最新消息
             chatMessages.scrollTop = chatMessages.scrollHeight;
 
             try {
+                // 发送POST请求到后端服务器的 /api/chat 接口
+                // fetch 是浏览器内置的网络请求函数
                 const response = await fetch('/api/chat', {
-                    method: 'POST',
+                    method: 'POST',  // 使用POST方法发送数据
                     headers: {
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/json',  // 告诉服务器我们发送的是JSON格式
                     },
-                    body: JSON.stringify({
-                        user_input: message,
-                        target_agent_id: selectedAgent.id,
-                        conversation_history: conversationHistory
+                    body: JSON.stringify({  // 把JavaScript对象转换成JSON字符串
+                        user_input: message,  // 用户输入的消息
+                        target_agent_id: selectedAgent.id,  // 目标角色的ID
+                        conversation_history: conversationHistory  // 对话历史，让AI知道之前的聊天内容
                     })
                 });
 
+                // 检查响应状态
+                // 如果response.ok为false，说明请求失败（比如网络错误、服务器错误等）
                 if (!response.ok) {
                     throw new Error('网络请求失败');
                 }
 
+                // 解析服务器返回的JSON数据
                 const data = await response.json();
                 
-                // 移除加载消息
+                // 移除“正在思考...”的加载消息
                 chatMessages.removeChild(loadingDiv);
                 
-                // 添加AI回复
+                // 在聊天窗口显示AI的回复
                 addAgentMessage(data.agent_name, data.response);
                 
-                // 更新对话历史
+                // 更新对话历史，保存这次的聊天记录
+                // 这样下次对话时，AI就能记住这次交流
                 conversationHistory = data.conversation_history || [];
                 
             } catch (error) {
+                // 如果发生错误（比如网络断开、服务器宕机等）
+                // 移除加载消息
                 chatMessages.removeChild(loadingDiv);
+                // 显示错误信息给用户
                 addSystemMessage(`错误: ${error.message}`);
             }
         }

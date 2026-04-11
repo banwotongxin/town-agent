@@ -57,4 +57,45 @@ export class TokenUtils {
   public static calculateMessagesTokenCount(messages: Array<{ content: string }>): number {
     return messages.reduce((total, msg) => total + this.calculateTokenCount(msg.content), 0);
   }
+
+  /**
+   * 估算消息数组的总字符数
+   * @param messages 消息数组
+   * @returns 总字符数
+   */
+  public static estimateTotalChars(messages: Array<{ content: string }>): number {
+    return messages.reduce((total, msg) => total + msg.content.length, 0);
+  }
+
+  /**
+   * 计算自适应分块比例（Layer 5 需要）
+   * 根据消息平均大小自适应调整分块比例，消息越大用越小的块
+   * @param messages 消息数组
+   * @param contextWindow 上下文窗口大小（tokens）
+   * @returns 分块比例（0.15-0.4）
+   */
+  public static computeAdaptiveChunkRatio(
+    messages: Array<{ content: string }>, 
+    contextWindow: number
+  ): number {
+    const BASE_CHUNK_RATIO = 0.4;
+    const MIN_CHUNK_RATIO = 0.15;
+    const SAFETY_MARGIN = 1.2;
+    
+    if (messages.length === 0 || contextWindow <= 0) {
+      return BASE_CHUNK_RATIO;
+    }
+    
+    const totalTokens = this.calculateMessagesTokenCount(messages);
+    const avgTokens = totalTokens / messages.length;
+    const avgRatio = (avgTokens * SAFETY_MARGIN) / contextWindow;
+    
+    // 如果平均消息超过上下文的10%，减小分块比例
+    if (avgRatio > 0.1) {
+      const reduction = Math.min(avgRatio * 2, BASE_CHUNK_RATIO - MIN_CHUNK_RATIO);
+      return Math.max(MIN_CHUNK_RATIO, BASE_CHUNK_RATIO - reduction);
+    }
+    
+    return BASE_CHUNK_RATIO;
+  }
 }

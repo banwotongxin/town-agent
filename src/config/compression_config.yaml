@@ -1,0 +1,43 @@
+# 上下文压缩配置 (Context Compression Configuration)
+# 基于七层防御体系规范
+
+context_compression:
+  # 基础参数
+  safety_margin: 1.2              # Token估算安全系数
+  chars_per_token: 4              # 字符/token转换比
+  summarization_overhead: 4096    # 摘要prompt预留token
+  
+  # Layer 3: 工具结果截断
+  max_tool_result_share: 0.3      # 单条工具结果占上下文最大比例
+  max_live_tool_result_chars: 40000  # 单条工具结果绝对上限
+  min_keep_chars: 2000            # 截断时最少保留字符数
+  
+  # Layer 2: 上下文裁剪
+  pruning:
+    mode: cache_ttl               # off | cache_ttl
+    cache_ttl_ms: 300000          # 5分钟
+    keep_last_assistants: 3       # 保护最近N条assistant消息
+    soft_trim_ratio: 0.3          # 占上下文窗口30%时触发软裁剪
+    hard_clear_ratio: 0.5         # 占上下文窗口50%时触发硬清除
+    soft_trim_max_chars: 4000
+    soft_trim_head_chars: 1500
+    soft_trim_tail_chars: 1500
+    hard_clear_placeholder: "[Old tool result content cleared]"
+  
+  # Layer 5: 主动压缩
+  compaction:
+    base_chunk_ratio: 0.4         # 默认分块占上下文窗口比例
+    min_chunk_ratio: 0.15         # 最小分块比例
+    max_summary_chars: 16000      # 摘要最大字符数
+    retry_attempts: 3             # LLM摘要重试次数
+    timeout_seconds: 900          # 单次压缩超时(秒)
+  
+  # Layer 4: 预防性压缩
+  preemptive:
+    truncation_buffer_tokens: 512 # 截断缓冲token数
+  
+  # 存储配置
+  storage:
+    max_file_size: 1048576        # 1MB - 历史文件最大大小
+    max_tokens: 10000             # 触发压缩的token阈值
+    min_tokens_to_keep: 5000      # 压缩后保留的token数

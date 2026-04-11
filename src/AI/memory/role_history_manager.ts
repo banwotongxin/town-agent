@@ -128,8 +128,42 @@ export class RoleHistoryManager {
       
       console.log(`[压缩开始] 角色 ${roleId}, 原始消息数: ${messages.length}`);
       
-      // 执行三层压缩
-      const compressedMessages = await this.compressor.compressThreeLayers(messages);
+      // ★ Layer 3: 工具结果截断
+      const { truncateAggregateToolResults } = await import('./tool_result_truncation');
+      const truncatedMessages = truncateAggregateToolResults(messages, this.maxTokens);
+      
+      // ★ Layer 2: 上下文裁剪
+      const { pruneContext } = await import('./context_pruning');
+      const prunedMessages = pruneContext(truncatedMessages, undefined, this.maxTokens);
+      
+      // ★ Layer 5: 主动压缩（如果有 LLM 模型且消息足够多）
+      let compressedMessages = prunedMessages;
+      if (prunedMessages.length > 10) {
+        try {
+          const { activeCompact } = await import('./active_compaction');
+          
+          // 尝试获取 LLM 模型（从外部传入或配置）
+          const llmModel = this.getLLMModel();
+          
+          if (llmModel) {
+            console.log('[压缩] 使用主动压缩 (Layer 5 - LLM 摘要)');
+            const result = await activeCompact(
+              prunedMessages,
+              this.maxTokens,
+              llmModel
+            );
+            compressedMessages = result.keptMessages;
+          } else {
+            console.log('[压缩] LLM 模型不可用，回退到三层压缩');
+            compressedMessages = await this.compressor.compressThreeLayers(prunedMessages);
+          }
+        } catch (error) {
+          console.error('[主动压缩失败，回退到旧方法]:', error);
+          compressedMessages = await this.compressor.compressThreeLayers(prunedMessages);
+        }
+      } else {
+        console.log('[压缩] 消息数量较少，跳过 LLM 摘要');
+      }
       
       console.log(`[压缩完成] 角色 ${roleId}, 压缩后消息数: ${compressedMessages.length}`);
       
@@ -149,6 +183,16 @@ export class RoleHistoryManager {
       console.error(`[压缩失败] 角色 ${roleId}:`, error);
       throw error;
     }
+  }
+  
+  /**
+   * 获取 LLM 模型实例（用于主动压缩）
+   * 当前返回 null，使用旧的压缩方法作为后备
+   * TODO: 从配置或依赖注入获取 LLM 模型
+   */
+  private getLLMModel(): any {
+    // 暂时返回 null，使用 ConversationCompressor 的三层压缩
+    return null;
   }
   
   /**
