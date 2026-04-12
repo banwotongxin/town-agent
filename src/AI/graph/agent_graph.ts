@@ -329,6 +329,9 @@ ${styleHint}
       }
     }
 
+    console.log('[LLM调用] 系统提示长度:', systemPrompt.length, '字符');
+    console.log('[LLM调用] 系统提示预览:', systemPrompt.substring(0, 500));
+
     // ★ Layer 4: 预防性压缩决策
     try {
       const { decideCompactionRoute, CompactionRoute } = await import('../memory/compression/preemptive_compaction');
@@ -383,29 +386,13 @@ ${styleHint}
 
     // 调用语言模型
     if ((this.agent as any).llmModel) {
-      // 准备工具列表（从已加载的 MCP 客户端获取，或者使用 CLI 方式）
+      // 准备工具列表（从已加载的 MCP 客户端获取）
       let tools: any[] = [];
       
       if (state.matched_skills.length > 0) {
         try {
-          const { getMcpCliManager } = await import('../cli/mcp_cli_manager');
           const { getMcpLoader } = await import('../mcp/lazy_loader');
-          
-          // 先确保MCP服务器已加载
           const mcpLoader = getMcpLoader();
-          for (const skillName of state.matched_skills) {
-            const skill = this.skills.getSkill(skillName);
-            if (skill && skill.Manifest.mcp_dependencies) {
-              for (const mcpDep of skill.Manifest.mcp_dependencies) {
-                const serverName = typeof mcpDep === 'string' ? mcpDep : mcpDep.name;
-                console.log(`[LLM调用] 确保MCP服务器已加载: ${serverName}`);
-                await mcpLoader.getClient(serverName);
-              }
-            }
-          }
-          
-          // 获取CLI管理器（此时会触发预加载）
-          const cliManager = await getMcpCliManager();
           
           // 遍历所有匹配的技能，收集它们的 MCP 工具
           for (const skillName of state.matched_skills) {
@@ -414,30 +401,26 @@ ${styleHint}
               for (const mcpDep of skill.Manifest.mcp_dependencies) {
                 const serverName = typeof mcpDep === 'string' ? mcpDep : mcpDep.name;
                 
-                // 从 CLI 管理器获取已注册的命令并转换为 LLM 格式
-                const commands = cliManager.getRegisteredCommands();
-                console.log(`[LLM调用] CLI管理器中注册了 ${commands.length} 个命令`);
-                for (const cmd of commands) {
-                  if (cmd.serverName === serverName) {
-                    console.log(`[LLM调用] 添加工具: ${cmd.toolName} (${cmd.description})`);
-                    // 确保 parameters 符合 JSON Schema 规范
-                    let paramsSchema = cmd.params;
-                    if (!paramsSchema.type) {
-                      paramsSchema = {
-                        type: 'object',
-                        properties: paramsSchema.properties || {},
-                        required: paramsSchema.required || []
-                      };
+                // 检查 MCP 服务器是否已加载
+                if (mcpLoader.isLoaded(serverName)) {
+                  // 获取 MCP 客户端
+                  const client = await mcpLoader.getClient(serverName);
+                  if (client && client.listTools) {
+                    const mcpTools = await client.listTools();
+                    
+                    // 转换 MCP 工具格式为 LLM 需要的格式
+                    for (const tool of mcpTools) {
+                      tools.push({
+                        type: 'function',
+                        function: {
+                          name: tool.name,
+                          description: tool.description || '',
+                          parameters: tool.inputSchema || {}
+                        }
+                      });
                     }
-
-                    tools.push({
-                      type: 'function',
-                      function: {
-                        name: cmd.toolName,
-                        description: cmd.description || '',
-                        parameters: paramsSchema
-                      }
-                    });
+                    
+                    console.log(`[LLM调用] 从 ${serverName} 加载了 ${mcpTools.length} 个工具`);
                   }
                 }
               }
@@ -458,10 +441,10 @@ ${styleHint}
         console.log(`[LLM调用] LLM 决定调用 ${response.tool_calls.length} 个工具`);
         (state as any).tool_calls = response.tool_calls;
         
-        // 执行工具调用（统一通过 CLI 方式）
+        // 执行工具调用
         try {
-          const { getMcpCliManager } = await import('../cli/mcp_cli_manager');
-          const cliManager = await getMcpCliManager();
+          const { getMcpLoader } = await import('../mcp/lazy_loader');
+          const mcpLoader = getMcpLoader();
           
           const toolResults = [];
           
@@ -469,22 +452,63 @@ ${styleHint}
             const toolName = toolCall.function.name;
             const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
             
-            console.log(`[工具执行] 通过 CLI 调用: ${toolName}`);
-            const cliResult = await cliManager.executeCliCommand(toolName, toolArgs);
+            console.log(`[工具执行] 调用工具: ${toolName}, 参数:`, toolArgs);
             
-            let resultText = '';
-            if (cliResult.success) {
-              resultText = typeof cliResult.output === 'string' 
-                ? cliResult.output 
-                : JSON.stringify(cliResult.output, null, 2);
-            } else {
-              resultText = `CLI 执行失败: ${cliResult.error}`;
+            // 查找对应的 MCP 客户端并执行工具
+            let executed = false;
+            for (const skillName of state.matched_skills) {
+              const skill = this.skills.getSkill(skillName);
+              if (skill && skill.Manifest.mcp_dependencies) {
+                for (const mcpDep of skill.Manifest.mcp_dependencies) {
+                  const serverName = typeof mcpDep === 'string' ? mcpDep : mcpDep.name;
+                  
+                  if (mcpLoader.isLoaded(serverName)) {
+                    const client = await mcpLoader.getClient(serverName);
+                    if (client && client.callTool) {
+                      try {
+                        const result = await client.callTool(toolName, toolArgs);
+                        console.log(`[工具执行] 工具 ${toolName} 执行成功`);
+                        
+                        // 提取工具返回的文本内容
+                        let resultText = '';
+                        if (result.content && Array.isArray(result.content)) {
+                          resultText = result.content.map((c: any) => c.text || '').join('\n');
+                        } else if (typeof result === 'string') {
+                          resultText = result;
+                        } else {
+                          resultText = JSON.stringify(result, null, 2);
+                        }
+                        
+                        toolResults.push({
+                          tool_call_id: toolCall.id,
+                          content: resultText
+                        });
+                        
+                        executed = true;
+                        break;
+                      } catch (error) {
+                        console.error(`[工具执行] 工具 ${toolName} 执行失败:`, error);
+                        toolResults.push({
+                          tool_call_id: toolCall.id,
+                          content: `工具执行错误: ${error instanceof Error ? error.message : String(error)}`
+                        });
+                        executed = true;
+                        break;
+                      }
+                    }
+                  }
+                }
+              }
+              if (executed) break;
             }
             
-            toolResults.push({
-              tool_call_id: toolCall.id,
-              content: resultText
-            });
+            if (!executed) {
+              console.warn(`[工具执行] 未找到工具 ${toolName} 的执行器`);
+              toolResults.push({
+                tool_call_id: toolCall.id,
+                content: `错误：未找到工具 "${toolName}"`
+              });
+            }
           }
           
           // 将工具结果添加到消息历史

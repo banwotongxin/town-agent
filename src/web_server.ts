@@ -30,7 +30,7 @@ import { createTeamAgent } from './AI/agents/team_agent';
 // 导入消息类型定义 - 用于对话历史
 import { BaseMessage } from './AI/agents/base_agent';
 // 导入MCP CLI管理器 - 用于网络搜索等CLI工具
-import { getMcpCliManager } from './AI/cli/mcp_cli_manager';
+
 // 导入MCP加载器 - 用于连接MCP服务器
 import { getMcpLoader } from './AI/mcp/lazy_loader';
 
@@ -132,10 +132,15 @@ class DeepSeekModel {
         requestBody.tools = options.tools;
         requestBody.tool_choice = 'auto';  // 让模型自动决定是否调用工具
         console.log(`[DeepSeek] 传递了 ${options.tools.length} 个工具给 LLM`);
+        console.log('[DeepSeek] 工具列表:', JSON.stringify(options.tools, null, 2));
       }
+
+      console.log('[DeepSeek] 发送请求到 API...');
+      console.log('[DeepSeek] 请求体大小:', JSON.stringify(requestBody).length, 'bytes');
 
       // 发送API请求到DeepSeek服务器
       // fetch是JavaScript内置的网络请求函数
+      console.log('[DeepSeek] 开始 fetch 调用...');
       const response = await fetch(this.baseUrl, {
         method: 'POST',  // 使用POST方法发送数据
         headers: {
@@ -144,6 +149,7 @@ class DeepSeekModel {
         },
         body: JSON.stringify(requestBody)
       });
+      console.log('[DeepSeek] 收到响应，状态码:', response.status);
 
       // 检查响应状态
       // 如果response.ok为false，说明请求失败（比如网络错误、API密钥错误等）
@@ -153,7 +159,9 @@ class DeepSeekModel {
 
       // 解析响应数据
       // 把服务器返回的JSON字符串转换成JavaScript对象
+      console.log('[DeepSeek] 开始解析响应 JSON...');
       const data: any = await response.json();
+      console.log('[DeepSeek] 响应数据:', JSON.stringify(data, null, 2).substring(0, 500));
       
       // 提取回复内容
       const message = data.choices[0].message;
@@ -164,6 +172,10 @@ class DeepSeekModel {
       
       if (toolCalls && toolCalls.length > 0) {
         console.log(`[DeepSeek] LLM 决定调用 ${toolCalls.length} 个工具`);
+      } else {
+        console.log('[DeepSeek] ⚠️ LLM 未决定调用工具，直接返回了文本回复');
+        console.log('[DeepSeek] 回复内容:', content.substring(0, 200));
+        console.log('[DeepSeek] 提示：可能需要使用支持 function calling 的模型版本');
       }
       
       // 返回DeepSeek生成的回复内容和工具调用
@@ -174,6 +186,10 @@ class DeepSeekModel {
     } catch (error) {
       // 如果发生错误（比如网络断开、API密钥错误等），记录错误信息
       console.error('LLM调用失败:', error);
+      if (error instanceof Error) {
+        console.error('错误详情:', error.message);
+        console.error('错误堆栈:', error.stack);
+      }
       // 出错时返回一个默认的友好提示，而不是让程序崩溃
       return {
         content: '[系统] 暂时无法回答你的问题，请稍后再试。'
@@ -470,134 +486,6 @@ app.post('/api/teams/task', async (req, res) => {
 });
 
 /**
- * 使用MCP CLI工具
- * 提供统一的接口来调用所有已注册的CLI命令
- */
-app.post('/api/cli/execute', async (req, res) => {
-  try {
-    const data = req.body;
-    const toolName = data.tool_name || '';
-    const params = data.params || {};
-
-    if (!toolName) {
-      return res.status(400).json({ error: '工具名称不能为空' });
-    }
-
-    console.log(`[CLI API] 收到CLI工具调用请求: ${toolName}`);
-    console.log(`[CLI API] 参数:`, params);
-
-    // 获取CLI管理器（已经在启动时初始化）
-    const cliManager = await getMcpCliManager();
-
-    // 检查工具是否已注册
-    if (!cliManager.isCommandRegistered(toolName)) {
-      const availableCommands = cliManager.getRegisteredCommands().map(cmd => cmd.toolName);
-      return res.status(404).json({ 
-        error: `未找到工具: ${toolName}`,
-        available_commands: availableCommands
-      });
-    }
-
-    // 执行CLI命令
-    console.log(`[CLI API] 执行CLI命令: ${toolName}`);
-    const result = await cliManager.executeCliCommand(toolName, params);
-
-    if (result.success) {
-      console.log(`[CLI API] ✓ 命令执行成功`);
-      res.json({
-        success: true,
-        tool_name: toolName,
-        output: result.output
-      });
-    } else {
-      console.error(`[CLI API] ✗ 命令执行失败:`, result.error);
-      res.status(500).json({
-        success: false,
-        tool_name: toolName,
-        error: result.error
-      });
-    }
-  } catch (e) {
-    console.error(`[ERROR] CLI工具调用失败:`, e);
-    res.status(500).json({ error: (e as Error).message });
-  }
-});
-
-/**
- * 获取所有可用的CLI命令列表
- */
-app.get('/api/cli/commands', async (req, res) => {
-  try {
-    const cliManager = await getMcpCliManager();
-    const commands = cliManager.getRegisteredCommands();
-    
-    res.json({
-      count: commands.length,
-      commands: commands.map(cmd => ({
-        tool_name: cmd.toolName,
-        description: cmd.description,
-        server_name: cmd.serverName,
-        params_schema: cmd.params
-      }))
-    });
-  } catch (e) {
-    console.error(`[ERROR] 获取CLI命令列表失败:`, e);
-    res.status(500).json({ error: (e as Error).message });
-  }
-});
-
-/**
- * 初始化MCP CLI工具
- * 在服务器启动时预加载所有MCP CLI命令
- */
-async function initializeMcpCli() {
-  try {
-    console.log('[MCP CLI] 开始初始化MCP CLI工具...');
-    
-    // 1. 获取MCP加载器并连接所有配置的服务器
-    const mcpLoader = await getMcpLoader();
-    const { DEFAULT_MCP_SERVERS } = await import('./AI/mcp/lazy_loader');
-    const configuredServers = Object.keys(DEFAULT_MCP_SERVERS);
-    
-    console.log(`[MCP CLI] 发现 ${configuredServers.length} 个配置的MCP服务器:`, configuredServers);
-    
-    // 2. 连接到所有配置的服务器
-    for (const serverName of configuredServers) {
-      try {
-        console.log(`[MCP CLI] 正在连接服务器: ${serverName}`);
-        const client = await mcpLoader.getClient(serverName);
-        if (client) {
-          const tools = await client.listTools();
-          console.log(`[MCP CLI] ✓ 成功连接到 ${serverName}，发现 ${tools.length} 个工具`);
-          tools.forEach((tool: any) => {
-            console.log(`     - ${tool.name}: ${tool.description.substring(0, 60)}...`);
-          });
-        }
-      } catch (error) {
-        console.warn(`[MCP CLI] ✗ 连接服务器 ${serverName} 失败:`, error instanceof Error ? error.message : String(error));
-      }
-    }
-    
-    // 3. 获取CLI管理器（这会自动预加载所有已连接服务器的工具）
-    console.log('[MCP CLI] 初始化CLI管理器...');
-    const cliManager = await getMcpCliManager();
-    
-    // 4. 显示已注册的CLI命令
-    const registeredCommands = cliManager.getRegisteredCommands();
-    console.log(`[MCP CLI] ✓ 已注册 ${registeredCommands.length} 个CLI命令:`);
-    registeredCommands.forEach(cmd => {
-      console.log(`     - ${cmd.toolName} (${cmd.serverName})`);
-    });
-    
-    console.log('[MCP CLI] MCP CLI工具初始化完成\n');
-    return true;
-  } catch (error) {
-    console.error('[MCP CLI] MCP CLI工具初始化失败:', error);
-    return false;
-  }
-}
-
-/**
  * 初始化小镇
  */
 async function initializeTown() {
@@ -695,10 +583,6 @@ async function startServer() {
       console.log("环境配置错误，退出程序");
       process.exit(1);
     }
-
-    // 初始化MCP CLI工具（预加载所有CLI命令）
-    console.log("\n=== 初始化MCP CLI工具 ===");
-    await initializeMcpCli();
 
     // 初始化小镇
     console.log("\n=== 初始化小镇 ===");

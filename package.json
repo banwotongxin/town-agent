@@ -4,7 +4,8 @@
   "description": "Cyber Town Agent System rewritten in TypeScript",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run copy-skills",
+    "copy-skills": "node -e \"const fs=require('fs'); const path=require('path'); const srcDir='src/AI/skills'; const distDir='dist/AI/skills'; if (!fs.existsSync(distDir)) fs.mkdirSync(distDir, {recursive:true}); fs.readdirSync(srcDir).forEach(skill => { const skillPath=path.join(srcDir, skill); const distSkillPath=path.join(distDir, skill); if (fs.statSync(skillPath).isDirectory() && fs.existsSync(path.join(skillPath, 'SKILL.md'))) { if (!fs.existsSync(distSkillPath)) fs.mkdirSync(distSkillPath, {recursive:true}); fs.copyFileSync(path.join(skillPath, 'SKILL.md'), path.join(distSkillPath, 'SKILL.md')); console.log('Copied SKILL.md for', skill); } });\"",
     "start": "node dist/src/web_server.js",
     "dev": "ts-node src/web_server.ts",
     "test": "jest"

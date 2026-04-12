@@ -1,9 +1,6 @@
 /**
  * MCP服务器配置接口，定义了MCP服务器的配置信息
  */
-import dotenv from 'dotenv';
-dotenv.config();
-
 export interface MCPServerConfig {
   name: string;                 // 服务器名称
   command?: string;              // 启动命令（用于stdio传输）
