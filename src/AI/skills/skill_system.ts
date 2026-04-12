@@ -84,29 +84,85 @@ export class SkillManifestImpl implements SkillManifest {
       const name = nameMatch ? nameMatch[1].trim() : "";
       const description = descMatch ? descMatch[1].trim() : "";
       
-      // 提取触发关键词
-      const triggerKeywords: string[] = [name];
-      const commonKeywords = [
-        '小说', '写小说', '创作', '故事', '续写', 
-        '角色', '世界观', '科幻', '奇幻', '悬疑', 
-        '言情', '武侠', '反派', '主角', '章节',
-        '魔法', '设计', '构建', '构思', '情节',
-        '人物', '背景', '设定', '大纲', '灵感'
-      ];
+      // 提取触发关键词 - 从 YAML 中解析
+      let triggerKeywords: string[] = [];
       
-      commonKeywords.forEach(keyword => {
-        if (description.includes(keyword) && !triggerKeywords.includes(keyword)) {
-          triggerKeywords.push(keyword);
-        }
-      });
+      // 尝试从 YAML 中解析 trigger_keywords
+      const keywordsMatch = frontmatter.match(/trigger_keywords:\s*\n((?:\s+- .+\n?)+)/);
+      if (keywordsMatch) {
+        const keywordsText = keywordsMatch[1];
+        const keywordLines = keywordsText.split('\n');
+        triggerKeywords = keywordLines
+          .map(line => line.trim())
+          .filter(line => line.startsWith('- '))
+          .map(line => line.substring(2).trim())
+          .filter(kw => kw.length > 0);
         
+        console.log(`[SkillManifest] 从 YAML 解析到 ${triggerKeywords.length} 个关键词`);
+      } else {
+        console.warn(`[SkillManifest] 技能 "${name}" 未定义 trigger_keywords，请在 SKILL.md 中添加`);
+      }
+      
+      // 提取 MCP 依赖 - 从 YAML 中解析
+      let mcpDependencies: any[] = [];
+      
+      // 尝试从 YAML 中解析 mcp_dependencies
+      const mcpMatch = frontmatter.match(/mcp_dependencies:\s*\n((?:\s+- .+\n?)+)/);
+      if (mcpMatch) {
+        const mcpText = mcpMatch[1];
+        const mcpLines = mcpText.split('\n');
+        mcpDependencies = mcpLines
+          .map(line => line.trim())
+          .filter(line => line.startsWith('- '))
+          .map(line => line.substring(2).trim())
+          .filter(dep => dep.length > 0);
+        
+        console.log(`[SkillManifest] 从 YAML 解析到 ${mcpDependencies.length} 个 MCP 依赖: ${mcpDependencies.join(', ')}`);
+      } else {
+        console.log(`[SkillManifest] 技能 "${name}" 没有 MCP 依赖`);
+      }
+      
+      // 提取 system_prompt_enhancement - 从 YAML 中解析（支持多行字符串）
+      let systemPromptEnhancement: string = "";
+      
+      // 尝试匹配 system_prompt_enhancement: | 格式的多行字符串
+      // 简化版本：匹配从 system_prompt_enhancement: | 到字符串末尾
+      const promptMatch = frontmatter.match(/system_prompt_enhancement:\s*\|?\s*\n([\s\S]*)/m);
+      console.log(`[SkillManifest] 尝试匹配 system_prompt_enhancement, 结果: ${!!promptMatch}`);
+      if (promptMatch) {
+        console.log(`[SkillManifest] 匹配到的原始内容长度: ${promptMatch[1].length}`);
+        // 提取多行内容并去除每行的共同缩进
+        const rawText = promptMatch[1];
+        const lines = rawText.split('\n');
+        
+        // 找到最小缩进
+        let minIndent = Infinity;
+        for (const line of lines) {
+          if (line.trim().length > 0) {
+            const indent = line.match(/^(\s*)/)?.[1].length || 0;
+            minIndent = Math.min(minIndent, indent);
+          }
+        }
+        
+        // 去除共同缩进并过滤空行
+        systemPromptEnhancement = lines
+          .map(line => line.substring(minIndent))
+          .join('\n')
+          .trim();
+        
+        console.log(`[SkillManifest] 从 YAML 解析到 system_prompt_enhancement (${systemPromptEnhancement.length} 字符)`);
+      } else {
+        console.log(`[SkillManifest] 技能 "${name}" 没有 system_prompt_enhancement`);
+        // 不再输出整个frontmatter，避免日志过多
+      }
+      
       return new SkillManifestImpl(
         name,
         description,
         triggerKeywords,
         undefined,
-        [],
-        content.substring(frontmatterMatch[0].length).trim() // 使用剩余内容作为 system prompt
+        mcpDependencies,  // 使用解析到的 MCP 依赖
+        systemPromptEnhancement || content.substring(frontmatterMatch[0].length).trim() // 优先使用 YAML 中的 system_prompt_enhancement
       );
     } catch (error) {
       console.error(`[SkillManifest] 读取 Markdown 文件失败 ${mdPath}:`, error);
@@ -362,25 +418,79 @@ export class SkillRegistry {
   }
 
   /**
-   * 查找匹配的技能
-   * @param query 查询字符串
-   * @returns 匹配的技能列表
+   * 计算查询与技能的语义相似度
+   * @param query 用户查询
+   * @param skill 技能对象
+   * @returns 相似度分数 (0-1)
    */
-  findMatchingSkills(query: string): BaseSkill[] {
-    const matching: BaseSkill[] = [];
+  private calculateSemanticScore(query: string, skill: BaseSkill): number {
+    const queryLower = query.toLowerCase();
+    let score = 0;
+    
+    // 1. 检查触发关键词（高权重）
+    if (skill.Manifest.trigger_keywords && skill.Manifest.trigger_keywords.length > 0) {
+      for (const keyword of skill.Manifest.trigger_keywords) {
+        if (queryLower.includes(keyword.toLowerCase())) {
+          score += 0.3; // 每个匹配的关键词增加 0.3 分
+        }
+      }
+    }
+    
+    // 2. 检查技能描述（中等权重）
+    if (skill.Manifest.description) {
+      const descWords = skill.Manifest.description.toLowerCase().split(/[\s,，、]+/);
+      const queryWords = queryLower.split(/[\s,，、]+/);
+      
+      let matchCount = 0;
+      for (const qWord of queryWords) {
+        if (qWord.length > 1) { // 忽略单字符
+          for (const dWord of descWords) {
+            if (dWord.includes(qWord) || qWord.includes(dWord)) {
+              matchCount++;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (matchCount > 0) {
+        score += Math.min(0.5, matchCount * 0.1); // 最多 0.5 分
+      }
+    }
+    
+    return Math.min(1.0, score);
+  }
+
+  /**
+   * 查找匹配的技能（基于语义相似度）
+   * @param query 查询字符串
+   * @param threshold 相似度阈值，默认 0.3
+   * @returns 匹配的技能列表（按相似度排序）
+   */
+  findMatchingSkills(query: string, threshold: number = 0.3): BaseSkill[] {
+    const scored: Array<{skill: BaseSkill; score: number}> = [];
+    
     console.log(`[SkillRegistry] 正在查找匹配的技能，查询: "${query.substring(0, 50)}..."`);
     console.log(`[SkillRegistry] 当前注册的技能数量: ${Object.keys(this.skills).length}`);
-    console.log(`[SkillRegistry] 已注册的技能类: ${Object.keys(this.skillClasses).join(', ')}`);
 
     for (const skill of Object.values(this.skills)) {
-      console.log(`[SkillRegistry] 检查技能: ${skill.Manifest.name}, 类型: ${skill.constructor.name}`);
-      if (skill.match(query)) {
-        console.log(`[SkillRegistry] 技能 ${skill.Manifest.name} 匹配成功!`);
-        matching.push(skill);
+      const score = this.calculateSemanticScore(query, skill);
+      
+      if (score > 0) {
+        console.log(`[SkillRegistry] 技能 ${skill.Manifest.name} 相似度: ${score.toFixed(2)}`);
+      }
+      
+      if (score >= threshold) {
+        scored.push({ skill, score });
       }
     }
 
-    console.log(`[SkillRegistry] 找到 ${matching.length} 个匹配的技能`);
+    // 按相似度降序排序
+    scored.sort((a, b) => b.score - a.score);
+    
+    const matching = scored.map(item => item.skill);
+    console.log(`[SkillRegistry] 找到 ${matching.length} 个匹配的技能（阈值: ${threshold}）`);
+    
     return matching;
   }
 
@@ -488,22 +598,60 @@ export function createDefaultRegistry(): SkillRegistry {
     console.warn('[SkillRegistry] 无法注册 novel-writer-cn 技能类:', error);
   }
   
-  // 加载 write 目录下的 Markdown skills
-  const writeSkillsDir = path.join(__dirname, 'write');
-  if (fs.existsSync(writeSkillsDir)) {
-    console.log('[SkillRegistry] 扫描 write 目录...');
-    const subdirs = fs.readdirSync(writeSkillsDir);
-    
-    for (const subdir of subdirs) {
-      const skillDir = path.join(writeSkillsDir, subdir);
-      const stats = fs.statSync(skillDir);
-      
+  // 扫描 skills 目录下的所有子目录
+  // 注意：__dirname 在编译后指向 dist/src/AI/skills，但技能文件可能在 dist/AI/skills
+  const currentDir = __dirname;
+  console.log('[SkillRegistry] 当前目录:', currentDir);
+  
+  // 尝试多个可能的路径，优先检查 dist/AI/skills
+  const possiblePaths = [
+    path.join(process.cwd(), 'dist', 'AI', 'skills'),  // 绝对路径 - 优先
+    path.join(currentDir, '..', '..'),  // dist/AI/skills (向上两级)
+    path.join(currentDir),  // dist/src/AI/skills
+  ];
+  
+  let skillsDir = '';
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) {
+      const stats = fs.statSync(p);
       if (stats.isDirectory()) {
-        const skillMdPath = path.join(skillDir, 'SKILL.md');
-        if (fs.existsSync(skillMdPath)) {
-          console.log(`[SkillRegistry] 发现技能目录: ${subdir}`);
-          registry.loadSkillsFromDirectory(skillDir);
+        // 检查这个目录下是否有 web_search 或 write 子目录
+        const subdirs = fs.readdirSync(p);
+        const hasSkillDirs = subdirs.some(subdir => {
+          const subdirPath = path.join(p, subdir);
+          return fs.statSync(subdirPath).isDirectory() && 
+                 fs.existsSync(path.join(subdirPath, 'SKILL.md'));
+        });
+        
+        if (hasSkillDirs) {
+          skillsDir = p;
+          console.log(`[SkillRegistry] 使用技能目录: ${skillsDir}`);
+          break;
         }
+      }
+    }
+  }
+  
+  if (!skillsDir) {
+    console.error('[SkillRegistry] 未找到有效的技能目录');
+    return registry;
+  }
+  
+  console.log('[SkillRegistry] 扫描 skills 目录...');
+  console.log(`[SkillRegistry] skillsDir: ${skillsDir}`);
+  const subdirs = fs.readdirSync(skillsDir);
+  console.log(`[SkillRegistry] 子目录: ${subdirs.join(', ')}`);
+  
+  for (const subdir of subdirs) {
+    const skillDir = path.join(skillsDir, subdir);
+    const stats = fs.statSync(skillDir);
+    
+    if (stats.isDirectory() && subdir !== 'node_modules') {
+      const skillMdPath = path.join(skillDir, 'SKILL.md');
+      console.log(`[SkillRegistry] 检查目录: ${subdir}, SKILL.md存在: ${fs.existsSync(skillMdPath)}`);
+      if (fs.existsSync(skillMdPath)) {
+        console.log(`[SkillRegistry] 发现技能目录: ${subdir}`);
+        registry.loadSkillsFromDirectory(skillDir);
       }
     }
   }

@@ -8,6 +8,7 @@
 import { AnyAgentTool } from './core';
 import { createReadTool, createWriteTool } from './fs-tools';
 import { createExecTool } from './exec-tools';
+import { createMCPCliTool } from './mcp_cli_tool';
 import { applyToolPolicyPipeline, buildDefaultToolPolicyPipelineSteps } from './tool-policy-pipeline';
 import { filterOwnerOnlyTools } from './tool-policy';
 import { toToolDefinitions } from './adapter';
@@ -104,9 +105,16 @@ export function createDefaultToolRegistry(options?: {
     timeout: 30000,
   }));
   
-  // TODO: 注册更多工具
-  // registry.registerTool(createWebSearchTool());
-  // registry.registerTool(createImageTool());
+  // 注册MCP CLI工具示例
+  // 注意：实际使用时需要根据MCP服务器的工具定义来创建
+  // registry.registerTool(createMCPCliTool({
+  //   toolName: 'web_search',
+  //   description: '使用网络搜索获取最新信息',
+  //   parameters: z.object({
+  //     query: z.string().describe('搜索查询'),
+  //     count: z.number().optional().describe('返回结果数量')
+  //   })
+  // }));
   
   return registry;
 }

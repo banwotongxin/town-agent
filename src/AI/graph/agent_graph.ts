@@ -1,7 +1,8 @@
 // 导入消息相关类和双记忆系统
 import { BaseMessage, HumanMessage, AIMessage, SystemMessage } from '../agents/base_agent';
-import { DualMemorySystem } from '../memory/dual_memory';
+import { DualMemorySystem } from '../memory/storage/dual_memory';
 import { middlewarePreCheckNode, middlewareToolCheckNode, middlewarePostCheckNode } from './nodes/middleware_nodes';
+import { mcpLoadNode } from './nodes/mcp_load_node'; // 导入MCP加载节点函数
 
 /**
  * 智能体状态接口，定义了智能体图的状态
@@ -152,7 +153,7 @@ export class AgentGraph {
     
     // 2. 从文件加载对话历史并添加到 messages
     try {
-      const { RoleHistoryManager } = await import('../memory/role_history_manager');
+      const { RoleHistoryManager } = await import('../memory/storage/role_history_manager');
       const roleHistoryManager = new RoleHistoryManager();
       const agentId = (this.agent as any).agentId || 'unknown';
       
@@ -220,14 +221,8 @@ ${styleHint}
    * @returns 更新后的状态
    */
   async loadMcpNode(state: AgentState): Promise<AgentState> {
-    for (const skillName of state.matched_skills) {
-      const skill = this.skills.getSkill(skillName);
-      if (skill && skill.manifest.mcp_dependencies) {
-        // 加载 MCP 依赖
-      }
-    }
-
-    return state;
+    console.log('[MCP加载节点] 开始加载MCP依赖');
+    return await mcpLoadNode(state);
   }
 
   /**
@@ -269,7 +264,7 @@ ${styleHint}
           
           // 保存对话到文件历史
           try {
-            const { RoleHistoryManager } = await import('../memory/role_history_manager');
+            const { RoleHistoryManager } = await import('../memory/storage/role_history_manager');
             const { HumanMessage, AIMessage } = await import('../agents/base_agent');
             const roleHistoryManager = new RoleHistoryManager();
             const agentId = (this.agent as any).agentId || 'unknown';
@@ -336,9 +331,9 @@ ${styleHint}
 
     // ★ Layer 4: 预防性压缩决策
     try {
-      const { decideCompactionRoute, CompactionRoute } = await import('../memory/preemptive_compaction');
-      const { truncateAggregateToolResults } = await import('../memory/tool_result_truncation');
-      const { activeCompact } = await import('../memory/active_compaction');
+      const { decideCompactionRoute, CompactionRoute } = await import('../memory/compression/preemptive_compaction');
+      const { truncateAggregateToolResults } = await import('../memory/compression/tool_result_truncation');
+      const { activeCompact } = await import('../memory/compression/active_compaction');
       
       const routeInfo = decideCompactionRoute(
         messages,
@@ -388,13 +383,148 @@ ${styleHint}
 
     // 调用语言模型
     if ((this.agent as any).llmModel) {
+      // 准备工具列表（从已加载的 MCP 客户端获取，或者使用 CLI 方式）
+      let tools: any[] = [];
+      
+      if (state.matched_skills.length > 0) {
+        try {
+          const { getMcpCliManager } = await import('../cli/mcp_cli_manager');
+          const { getMcpLoader } = await import('../mcp/lazy_loader');
+          
+          // 先确保MCP服务器已加载
+          const mcpLoader = getMcpLoader();
+          for (const skillName of state.matched_skills) {
+            const skill = this.skills.getSkill(skillName);
+            if (skill && skill.Manifest.mcp_dependencies) {
+              for (const mcpDep of skill.Manifest.mcp_dependencies) {
+                const serverName = typeof mcpDep === 'string' ? mcpDep : mcpDep.name;
+                console.log(`[LLM调用] 确保MCP服务器已加载: ${serverName}`);
+                await mcpLoader.getClient(serverName);
+              }
+            }
+          }
+          
+          // 获取CLI管理器（此时会触发预加载）
+          const cliManager = await getMcpCliManager();
+          
+          // 遍历所有匹配的技能，收集它们的 MCP 工具
+          for (const skillName of state.matched_skills) {
+            const skill = this.skills.getSkill(skillName);
+            if (skill && skill.Manifest.mcp_dependencies) {
+              for (const mcpDep of skill.Manifest.mcp_dependencies) {
+                const serverName = typeof mcpDep === 'string' ? mcpDep : mcpDep.name;
+                
+                // 从 CLI 管理器获取已注册的命令并转换为 LLM 格式
+                const commands = cliManager.getRegisteredCommands();
+                console.log(`[LLM调用] CLI管理器中注册了 ${commands.length} 个命令`);
+                for (const cmd of commands) {
+                  if (cmd.serverName === serverName) {
+                    console.log(`[LLM调用] 添加工具: ${cmd.toolName} (${cmd.description})`);
+                    // 确保 parameters 符合 JSON Schema 规范
+                    let paramsSchema = cmd.params;
+                    if (!paramsSchema.type) {
+                      paramsSchema = {
+                        type: 'object',
+                        properties: paramsSchema.properties || {},
+                        required: paramsSchema.required || []
+                      };
+                    }
+
+                    tools.push({
+                      type: 'function',
+                      function: {
+                        name: cmd.toolName,
+                        description: cmd.description || '',
+                        parameters: paramsSchema
+                      }
+                    });
+                  }
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[LLM调用] 获取 MCP 工具失败:', error);
+        }
+      }
+      
       const fullMessages = [new SystemMessage(systemPrompt), ...finalMessages];
-      const response = await (this.agent as any).llmModel.invoke(fullMessages);
-      state.agent_response = response.content || String(response);
+      
+      // 调用 LLM，传递工具列表
+      const response = await (this.agent as any).llmModel.invoke(fullMessages, { tools });
+      
+      // 如果 LLM 决定调用工具，执行工具并获取结果
+      if (response.tool_calls && response.tool_calls.length > 0) {
+        console.log(`[LLM调用] LLM 决定调用 ${response.tool_calls.length} 个工具`);
+        (state as any).tool_calls = response.tool_calls;
+        
+        // 执行工具调用（统一通过 CLI 方式）
+        try {
+          const { getMcpCliManager } = await import('../cli/mcp_cli_manager');
+          const cliManager = await getMcpCliManager();
+          
+          const toolResults = [];
+          
+          for (const toolCall of response.tool_calls) {
+            const toolName = toolCall.function.name;
+            const toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+            
+            console.log(`[工具执行] 通过 CLI 调用: ${toolName}`);
+            const cliResult = await cliManager.executeCliCommand(toolName, toolArgs);
+            
+            let resultText = '';
+            if (cliResult.success) {
+              resultText = typeof cliResult.output === 'string' 
+                ? cliResult.output 
+                : JSON.stringify(cliResult.output, null, 2);
+            } else {
+              resultText = `CLI 执行失败: ${cliResult.error}`;
+            }
+            
+            toolResults.push({
+              tool_call_id: toolCall.id,
+              content: resultText
+            });
+          }
+          
+          // 将工具结果添加到消息历史
+          const messagesWithToolResults = [...fullMessages];
+          
+          // 添加 AI 的工具调用消息
+          messagesWithToolResults.push({
+            type: 'ai',
+            content: '',
+            tool_calls: response.tool_calls
+          } as any);
+          
+          // 添加工具结果消息
+          for (const result of toolResults) {
+            messagesWithToolResults.push({
+              type: 'tool_result',
+              content: result.content,
+              tool_call_id: result.tool_call_id
+            } as any);
+          }
+          
+          // 再次调用 LLM，让它根据工具结果生成最终回复
+          console.log('[LLM调用] 基于工具结果生成最终回复...');
+          const finalResponse = await (this.agent as any).llmModel.invoke(messagesWithToolResults);
+          state.agent_response = finalResponse.content || '[系统] 工具执行完成，但无法生成回复';
+          
+          console.log(`[工具执行] 所有工具执行完毕，生成最终回复`);
+          
+        } catch (error) {
+          console.error('[工具执行] 执行工具时出错:', error);
+          state.agent_response = '[系统] 工具执行过程中出现错误';
+        }
+      } else {
+        // 没有工具调用，直接使用 LLM 的回复
+        state.agent_response = response.content || '[系统] 暂无回复';
+      }
       
       // 保存对话到文件历史
       try {
-        const { RoleHistoryManager } = await import('../memory/role_history_manager');
+        const { RoleHistoryManager } = await import('../memory/storage/role_history_manager');
         const { HumanMessage, AIMessage } = await import('../agents/base_agent');
         const roleHistoryManager = new RoleHistoryManager();
         const agentId = (this.agent as any).agentId || 'unknown';

@@ -1,5 +1,5 @@
 import { AgentState } from '../agent_graph';
-import { RoleHistoryManager } from '../../memory/role_history_manager';
+import { RoleHistoryManager } from '../../memory/storage/role_history_manager';
 
 /**
  * 对话压缩节点

@@ -1,0 +1,16 @@
+{
+  "name": "cyber-town-cli",
+  "version": "1.0.0",
+  "description": "Cyber Town MCP CLI Tools",
+  "main": "dist/cli/mcp_tool_runner.js",
+  "bin": {
+    "mcp-tool": "./dist/cli/mcp_tool_runner.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli/mcp_tool_runner.js"
+  },
+  "keywords": ["mcp", "cli", "tools"],
+  "author": "",
+  "license": "ISC"
+}

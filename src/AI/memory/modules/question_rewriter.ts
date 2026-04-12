@@ -1,13 +1,17 @@
+// 问题重写器类，用于将用户问题改写为多个不同角度的查询，以提高检索效果
 export class QuestionRewriter {
-  private apiKey: string;
-  private baseURL: string;
+  private apiKey: string; // API密钥
+  private baseURL: string; // API基础URL
 
+  // 构造函数，初始化API密钥和基础URL
   constructor(apiKey: string = process.env.QWEN_API_KEY || '', baseURL: string = process.env.QWEN_BASE_URL || 'https://dashscope.aliyuncs.com/api/v1') {
-    this.apiKey = apiKey;
-    this.baseURL = baseURL;
+    this.apiKey = apiKey; // 设置API密钥
+    this.baseURL = baseURL; // 设置基础URL
   }
 
+  // 异步方法：重写问题，返回3个不同角度的查询
   async rewriteQuestion(question: string): Promise<string[]> {
+    // 构建提示词，指导AI如何重写问题
     const prompt = `你是一个查询扩展助手。请将以下用户问题改写为3个不同角度的查询，以便更好地从向量数据库中检索相关内容。
 
 用户问题：${question}
@@ -29,47 +33,50 @@ export class QuestionRewriter {
 请输出3个改写后的查询：`;
 
     try {
+      // 发送POST请求到Qwen文本生成API
       const response = await fetch(`${this.baseURL}/services/aigc/text-generation/generation`, {
-        method: 'POST',
+        method: 'POST', // 使用POST方法
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'application/json', // 设置内容类型为JSON
+          // 如果有API密钥，则添加Authorization头
           ...(this.apiKey ? { 'Authorization': `Bearer ${this.apiKey}` } : {})
         },
         body: JSON.stringify({
-          model: 'qwen-turbo',
-          input: { messages: [{ role: 'user', content: prompt }] },
+          model: 'qwen-turbo', // 使用的模型名称
+          input: { messages: [{ role: 'user', content: prompt }] }, // 用户消息
           parameters: {
-            temperature: 0.7,
-            max_new_tokens: 500
+            temperature: 0.7, // 温度参数，控制生成的随机性
+            max_new_tokens: 500 // 最大生成的token数量
           }
         })
       });
 
+      // 检查响应是否成功
       if (!response.ok) {
-        const errorText = await response.text();
+        const errorText = await response.text(); // 获取错误响应文本
         console.error('Question Rewriter API Error:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
+          status: response.status, // HTTP状态码
+          statusText: response.statusText, // HTTP状态文本
+          body: errorText // 错误响应体
         });
-        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`); // 抛出错误
       }
 
-      const data = await response.json() as any;
-      const generatedText = data.output.text;
+      const data = await response.json() as any; // 解析JSON响应数据
+      const generatedText = data.output.text; // 获取生成的文本
       
       // 提取JSON部分
-      const jsonStart = generatedText.indexOf('[');
-      const jsonEnd = generatedText.lastIndexOf(']') + 1;
+      const jsonStart = generatedText.indexOf('['); // 找到JSON数组的开始位置
+      const jsonEnd = generatedText.lastIndexOf(']') + 1; // 找到JSON数组的结束位置
       if (jsonStart !== -1 && jsonEnd !== -1) {
-        const jsonStr = generatedText.substring(jsonStart, jsonEnd);
-        const rewrites = JSON.parse(jsonStr);
-        return Array.isArray(rewrites) ? rewrites.slice(0, 3) : [question];
+        const jsonStr = generatedText.substring(jsonStart, jsonEnd); // 提取JSON字符串
+        const rewrites = JSON.parse(jsonStr); // 解析JSON字符串为数组
+        return Array.isArray(rewrites) ? rewrites.slice(0, 3) : [question]; // 返回前3个重写结果，如果不是数组则返回原问题
       }
-      return [question];
+      return [question]; // 如果无法提取JSON，则返回原问题
     } catch (error) {
-      console.warn('Question rewriting failed, using original question:', error instanceof Error ? error.message : error);
-      return [question];
+      console.warn('Question rewriting failed, using original question:', error instanceof Error ? error.message : error); // 警告问题重写失败
+      return [question]; // 出错时返回原问题
     }
   }
 }

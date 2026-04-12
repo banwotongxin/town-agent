@@ -1,8 +1,8 @@
-import { BaseMessage, HumanMessage, AIMessage, ToolMessage, ToolResultMessage } from '../agents/base_agent';
-import { MemoryExtractionAgent } from '../agents/memory_extraction_agent';
+import { BaseMessage, HumanMessage, AIMessage, ToolMessage, ToolResultMessage } from '../../agents/base_agent';
+import { MemoryExtractionAgent } from '../../agents/memory_extraction_agent';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TokenUtils } from './token_utils';
+import { TokenUtils } from '../compression/token_utils';
 
 /**
  * 会话记忆类

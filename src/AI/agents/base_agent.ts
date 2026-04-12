@@ -103,9 +103,9 @@ export class ToolResultMessage implements BaseMessage {
  */
 export interface LLMModel {
   // 同步调用方法 - 发送消息给AI模型，等待回复
-  invoke: (messages: BaseMessage[]) => Promise<{ content: string }>;
+  invoke: (messages: BaseMessage[], options?: { tools?: any[] }) => Promise<{ content: string; tool_calls?: any[] }>;
   // 异步调用方法（可选）- 有些模型支持异步调用，性能更好
-  ainvoke?: (messages: BaseMessage[]) => Promise<{ content: string }>;
+  ainvoke?: (messages: BaseMessage[], options?: { tools?: any[] }) => Promise<{ content: string; tool_calls?: any[] }>;
 }
 
 /**
@@ -265,7 +265,7 @@ export class BaseAgent {
     try {
       // 动态导入RoleHistoryManager（角色历史管理器）
       // 使用import()而不是import语句，是为了避免循环依赖
-      const { RoleHistoryManager } = await import('../memory/role_history_manager');
+      const { RoleHistoryManager } = await import('../memory/storage/role_history_manager');
       // 创建历史管理器实例
       const roleHistoryManager = new RoleHistoryManager();
       
@@ -313,7 +313,7 @@ export class BaseAgent {
     // 保存对话到文件历史
     // 这样下次对话时，角色就能记住这次的交流
     try {
-      const { RoleHistoryManager } = await import('../memory/role_history_manager');
+      const { RoleHistoryManager } = await import('../memory/storage/role_history_manager');
       const roleHistoryManager = new RoleHistoryManager();
       
       // 保存用户消息和助手响应

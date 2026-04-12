@@ -1,5 +1,5 @@
 import { AgentState } from '../agent_graph'; // 导入智能体状态接口，包含消息、用户输入、记忆上下文等字段
-import { DualMemorySystem } from '../../memory/dual_memory'; // 导入双记忆系统类，用于管理短期和长期记忆
+import { DualMemorySystem } from '../../memory/storage/dual_memory'; // 导入双记忆系统类，用于管理短期和长期记忆
 
 /**
  * 记忆查询节点函数

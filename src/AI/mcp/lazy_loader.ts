@@ -1,12 +1,18 @@
 /**
  * MCP服务器配置接口，定义了MCP服务器的配置信息
  */
+import dotenv from 'dotenv';
+dotenv.config();
+
 export interface MCPServerConfig {
   name: string;                 // 服务器名称
-  command: string;              // 启动命令
-  args: string[];               // 命令参数
-  env: Record<string, string>;  // 环境变量
-  timeout: number;              // 超时时间
+  command?: string;              // 启动命令（用于stdio传输）
+  args?: string[];               // 命令参数（用于stdio传输）
+  env?: Record<string, string>;  // 环境变量
+  timeout?: number;              // 超时时间
+  url?: string;                  // HTTP/SSE URL（用于HTTP传输）
+  apiKey?: string;               // API密钥（用于认证）
+  transport?: 'stdio' | 'sse';   // 传输方式
 }
 
 /**
@@ -46,7 +52,10 @@ export class MCPLazyLoader {
       command: configDict.command || '',
       args: configDict.args || [],
       env: configDict.env || {},
-      timeout: configDict.timeout || 30
+      timeout: configDict.timeout || 30,
+      url: configDict.url,
+      apiKey: configDict.apiKey,
+      transport: configDict.transport || 'stdio'
     };
     this.registerServer(config);
   }
@@ -106,11 +115,17 @@ export class MCPLazyLoader {
     try {
       console.log(`正在启动 MCP 服务器：${config.name}`);
 
-      // 模拟实现
-      const mockClient = new MockMCPClient(config.name);
-      await mockClient.connect();
-
-      return mockClient;
+      // 根据传输方式创建不同的客户端
+      if (config.transport === 'sse' && config.url) {
+        // 使用HTTP/SSE传输
+        const httpClient = new SSEMCPClient(config);
+        await httpClient.connect();
+        return httpClient;
+      } else {
+        // 不支持的传输方式
+        console.warn(`[MCP] 不支持的传输方式: ${config.transport || 'undefined'}，服务器: ${config.name}`);
+        return undefined;
+      }
     } catch (e) {
       console.error(`启动 MCP 服务器 ${config.name} 失败：`, e);
       return undefined;
@@ -162,35 +177,128 @@ export class MCPLazyLoader {
 }
 
 /**
- * 模拟MCP客户端类
+ * HTTP/SSE MCP客户端类
+ * 用于连接基于HTTP/SSE的MCP服务器（如阿里云DashScope）
  */
-export class MockMCPClient {
-  serverName: string;              // 服务器名称
-  isConnected: boolean;            // 是否已连接
-  private tools: Record<string, string>[];  // 工具列表
+export class SSEMCPClient {
+  private config: MCPServerConfig;
+  private isConnected: boolean;
+  private tools: Array<{
+    name: string;
+    description: string;
+    inputSchema?: any;
+  }>;
+  private baseUrl: string;
+  private apiKey: string;
 
   /**
    * 构造函数
-   * @param serverName 服务器名称
+   * @param config MCP服务器配置
    */
-  constructor(serverName: string) {
-    this.serverName = serverName;
+  constructor(config: MCPServerConfig) {
+    this.config = config;
     this.isConnected = false;
     this.tools = [];
+    this.baseUrl = config.url || '';
+    this.apiKey = config.apiKey || process.env.DASHSCOPE_WEBSERACH_API_KEY || process.env.DASHSCOPE_WEBSEARCH_API_KEY || '';
+    console.log(`[SSEMCPClient] 构造函数 - API Key: ${this.apiKey ? '已配置 (' + this.apiKey.substring(0, 5) + '...)' : '未配置'}`);
   }
 
   /**
    * 连接服务器
    */
   async connect(): Promise<void> {
-    this.isConnected = true;
-    console.log(`[MockMCPClient] 连接到服务器：${this.serverName}`);
+    try {
+      console.log(`[SSEMCPClient] 连接到SSE服务器：${this.baseUrl}`);
+      console.log(`[SSEMCPClient] API Key: ${this.apiKey ? '已配置' : '未配置'}`);
+      
+      // 验证配置
+      if (!this.baseUrl) {
+        throw new Error('MCP服务器URL未配置');
+      }
+      if (!this.apiKey) {
+        throw new Error('API密钥未配置');
+      }
 
-    // 模拟一些工具
-    this.tools = [
-      { name: `${this.serverName}_tool_1`, description: "示例工具 1" },
-      { name: `${this.serverName}_tool_2`, description: "示例工具 2" }
-    ];
+      // 发现可用工具
+      await this.discoverTools();
+      
+      this.isConnected = true;
+      console.log(`[SSEMCPClient] 成功连接到服务器，发现 ${this.tools.length} 个工具`);
+    } catch (error) {
+      console.error('[SSEMCPClient] 连接失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 发现可用工具
+   */
+  private async discoverTools(): Promise<void> {
+    try {
+      console.log('[SSEMCPClient] 正在发现工具...');
+      
+      // 调用MCP的tools/list方法
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/list',
+          params: {}
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[SSEMCPClient] 获取工具列表失败:', errorText);
+        throw new Error(`HTTP错误 ${response.status}: ${errorText}`);
+      }
+
+      const result: any = await response.json();
+      console.log('[SSEMCPClient] tools/list响应:', JSON.stringify(result, null, 2));
+
+      // 解析工具列表
+      if (result.result && result.result.tools) {
+        this.tools = result.result.tools.map((tool: any) => ({
+          name: tool.name,
+          description: tool.description || '',
+          inputSchema: tool.inputSchema
+        }));
+        console.log(`[SSEMCPClient] 发现 ${this.tools.length} 个工具`);
+      } else {
+        console.warn('[SSEMCPClient] 未找到工具列表，使用默认工具');
+        // 如果无法获取工具列表，使用默认工具
+        this.tools = [
+          {
+            name: 'web_search',
+            description: '使用阿里云WebSearch进行网络搜索，获取最新的网络信息',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: {
+                  type: 'string',
+                  description: '搜索查询词'
+                },
+                count: {
+                  type: 'number',
+                  description: '返回结果数量',
+                  default: 10
+                }
+              },
+              required: ['query']
+            }
+          }
+        ];
+      }
+    } catch (error) {
+      console.error('[SSEMCPClient] 发现工具失败:', error);
+      throw error;
+    }
   }
 
   /**
@@ -198,30 +306,132 @@ export class MockMCPClient {
    */
   async close(): Promise<void> {
     this.isConnected = false;
-    console.log(`[MockMCPClient] 断开连接：${this.serverName}`);
+    console.log(`[SSEMCPClient] 断开连接：${this.config.name}`);
   }
 
   /**
    * 列出工具
    * @returns 工具列表
    */
-  async listTools(): Promise<Record<string, string>[]> {
+  async listTools(): Promise<Array<{name: string; description: string; inputSchema?: any}>> {
     return this.tools;
   }
 
   /**
    * 调用工具
    * @param toolName 工具名称
-   * @param kwargs 工具参数
+   * @param params 工具参数
    * @returns 工具执行结果
    */
-  async callTool(toolName: string, kwargs: Record<string, any>): Promise<any> {
+  async callTool(toolName: string, params: Record<string, any>): Promise<any> {
     if (!this.isConnected) {
       throw new Error("未连接到服务器");
     }
 
-    console.log(`[MockMCPClient] 调用工具：${toolName}, 参数：`, kwargs);
-    return `[${this.serverName}] 工具 ${toolName} 执行结果`;
+    console.log(`[SSEMCPClient] 调用工具：${toolName}, 参数：`, params);
+
+    try {
+      // 根据工具名称调用相应的API
+      // 支持多种工具名称格式
+      const actualToolName = this.getActualToolName(toolName);
+      
+      if (actualToolName) {
+        return await this.callMCPTool(actualToolName, params);
+      } else {
+        throw new Error(`未知工具: ${toolName}`);
+      }
+    } catch (error) {
+      console.error('[SSEMCPClient] 工具调用失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取实际的MCP工具名称
+   * @param toolName 用户提供的工具名称
+   * @returns 实际的MCP工具名称
+   */
+  private getActualToolName(toolName: string): string | null {
+    // 直接匹配
+    const directMatch = this.tools.find(t => t.name === toolName);
+    if (directMatch) {
+      return toolName;
+    }
+
+    // 尝试去除前缀（如 dashscope_websearch_）
+    const parts = toolName.split('_');
+    if (parts.length > 1) {
+      const shortName = parts.slice(1).join('_');
+      const prefixMatch = this.tools.find(t => t.name === shortName || t.name.endsWith(shortName));
+      if (prefixMatch) {
+        return prefixMatch.name;
+      }
+    }
+
+    // 尝试模糊匹配
+    const fuzzyMatch = this.tools.find(t => 
+      toolName.includes(t.name) || t.name.includes(toolName)
+    );
+    if (fuzzyMatch) {
+      return fuzzyMatch.name;
+    }
+
+    return null;
+  }
+
+  /**
+   * 调用MCP工具
+   * @param toolName MCP工具名称
+   * @param params 工具参数
+   * @returns 工具执行结果
+   */
+  private async callMCPTool(toolName: string, params: Record<string, any>): Promise<any> {
+    try {
+      console.log(`[SSEMCPClient] 发送MCP工具调用请求: ${toolName}`);
+      
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'tools/call',
+          params: {
+            name: toolName,
+            arguments: params
+          }
+        })
+      });
+
+      console.log('[SSEMCPClient] 响应状态:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[SSEMCPClient] API响应错误详情:', errorText);
+        throw new Error(`HTTP错误 ${response.status}: ${errorText}`);
+      }
+
+      const result: any = await response.json();
+      console.log('[SSEMCPClient] 工具调用结果:', JSON.stringify(result, null, 2));
+
+      // 检查是否有错误
+      if (result.error) {
+        throw new Error(`MCP工具调用错误: ${JSON.stringify(result.error)}`);
+      }
+
+      if (result.result && result.result.isError) {
+        const errorMessage = result.result.content?.[0]?.text || '未知错误';
+        throw new Error(`工具执行错误: ${errorMessage}`);
+      }
+
+      return result.result || result;
+    } catch (error) {
+      console.error('[SSEMCPClient] MCP工具调用失败:', error);
+      throw error;
+    }
   }
 }
 
@@ -237,24 +447,11 @@ export function createMcpLoader(): MCPLazyLoader {
  * 默认MCP服务器配置
  */
 export const DEFAULT_MCP_SERVERS = {
-  literature_search: {
-    command: "python",
-    args: ["-m", "mcp_literature_server"],
-    timeout: 30
-  },
-  medical_database: {
-    command: "python",
-    args: ["-m", "mcp_medical_server"],
-    timeout: 30
-  },
-  code_analysis: {
-    command: "npx",
-    args: ["@mcp/code-analyzer"],
-    timeout: 60
-  },
-  education_tools: {
-    command: "python",
-    args: ["-m", "mcp_education_server"],
+  // 阿里云DashScope WebSearch MCP
+  dashscope_websearch: {
+    url: "https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp",
+    apiKey: process.env.DASHSCOPE_WEBSERACH_API_KEY || process.env.DASHSCOPE_WEBSEARCH_API_KEY || '',
+    transport: "sse",
     timeout: 30
   }
 };

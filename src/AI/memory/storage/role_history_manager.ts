@@ -1,8 +1,7 @@
-import { BaseMessage, HumanMessage, AIMessage, ToolMessage, ToolResultMessage } from '../agents/base_agent';
+import { BaseMessage, HumanMessage, AIMessage, ToolMessage, ToolResultMessage } from '../../agents/base_agent';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TokenUtils } from './token_utils';
-import { ConversationCompressor } from './conversation_compressor';
+import { TokenUtils } from '../compression/token_utils';
 
 /**
  * 角色历史管理器
@@ -10,7 +9,6 @@ import { ConversationCompressor } from './conversation_compressor';
  */
 export class RoleHistoryManager {
   private storagePath: string;
-  private compressor: ConversationCompressor;
   private maxFileSize: number = 1024 * 1024; // 1MB
   private maxTokens: number = 10000;
   private minTokensToKeep: number = 5000;
@@ -21,7 +19,6 @@ export class RoleHistoryManager {
    */
   constructor(storagePath: string = './memory_storage/roles') {
     this.storagePath = storagePath;
-    this.compressor = new ConversationCompressor();
     this.ensureDirectories();
   }
   
@@ -129,18 +126,18 @@ export class RoleHistoryManager {
       console.log(`[压缩开始] 角色 ${roleId}, 原始消息数: ${messages.length}`);
       
       // ★ Layer 3: 工具结果截断
-      const { truncateAggregateToolResults } = await import('./tool_result_truncation');
+      const { truncateAggregateToolResults } = await import('../compression/tool_result_truncation');
       const truncatedMessages = truncateAggregateToolResults(messages, this.maxTokens);
       
       // ★ Layer 2: 上下文裁剪
-      const { pruneContext } = await import('./context_pruning');
+      const { pruneContext } = await import('../compression/context_pruning');
       const prunedMessages = pruneContext(truncatedMessages, undefined, this.maxTokens);
       
       // ★ Layer 5: 主动压缩（如果有 LLM 模型且消息足够多）
       let compressedMessages = prunedMessages;
       if (prunedMessages.length > 10) {
         try {
-          const { activeCompact } = await import('./active_compaction');
+          const { activeCompact } = await import('../compression/active_compaction');
           
           // 尝试获取 LLM 模型（从外部传入或配置）
           const llmModel = this.getLLMModel();
@@ -154,12 +151,14 @@ export class RoleHistoryManager {
             );
             compressedMessages = result.keptMessages;
           } else {
-            console.log('[压缩] LLM 模型不可用，回退到三层压缩');
-            compressedMessages = await this.compressor.compressThreeLayers(prunedMessages);
+            console.log('[压缩] LLM 模型不可用，跳过主动压缩，仅使用裁剪和截断');
+            // LLM 不可用时，只使用 Layer 2 和 Layer 3 的裁剪和截断
+            compressedMessages = prunedMessages;
           }
         } catch (error) {
-          console.error('[主动压缩失败，回退到旧方法]:', error);
-          compressedMessages = await this.compressor.compressThreeLayers(prunedMessages);
+          console.error('[主动压缩失败，仅使用裁剪和截断]:', error);
+          // 主动压缩失败时，只使用 Layer 2 和 Layer 3 的结果
+          compressedMessages = prunedMessages;
         }
       } else {
         console.log('[压缩] 消息数量较少，跳过 LLM 摘要');
@@ -187,11 +186,11 @@ export class RoleHistoryManager {
   
   /**
    * 获取 LLM 模型实例（用于主动压缩）
-   * 当前返回 null，使用旧的压缩方法作为后备
+   * 当前返回 null，如果 LLM 不可用则跳过主动压缩
    * TODO: 从配置或依赖注入获取 LLM 模型
    */
   private getLLMModel(): any {
-    // 暂时返回 null，使用 ConversationCompressor 的三层压缩
+    // 暂时返回 null，如果 LLM 不可用则跳过主动压缩
     return null;
   }
   

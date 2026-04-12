@@ -13,7 +13,7 @@ export async function mcpLoadNode(state: AgentState): Promise<AgentState> {
   
   try {
     // 获取全局MCP加载器实例，用于管理MCP服务器连接
-    const mcpLoader = getMcpLoader();
+    const mcpLoader = await getMcpLoader();
     
     // 获取全局技能注册表实例，用于查询技能的详细信息
     const skillRegistry = getSkillRegistry();

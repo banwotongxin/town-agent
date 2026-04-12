@@ -1,9 +1,9 @@
 // 导入必要的类和接口
-import { BaseMessage, ToolResultMessage } from '../agents/base_agent';
+import { BaseMessage, ToolResultMessage } from '../../agents/base_agent';
 import { SessionMemory } from './session_memory';
 import { PGLongTermMemory } from './pg_long_term_memory';
 import { ChromaLongTermMemory } from './chroma_long_term_memory';
-import { TokenUtils } from './token_utils';
+import { TokenUtils } from '../compression/token_utils';
 
 /**
  * 记忆项接口，定义了记忆的基本属性和方法

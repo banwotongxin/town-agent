@@ -11,6 +11,10 @@
  * 然后交给厨师（AI模型）处理，最后把做好的菜（回复）端给顾客。
  */
 
+// 加载环境变量
+import dotenv from 'dotenv';
+dotenv.config();
+
 // 导入Express框架 - 用于创建Web服务器
 import express from 'express';
 // 导入CORS中间件 - 允许跨域访问，让前端可以正常调用API
@@ -25,6 +29,10 @@ import { createDefaultTown } from './AI/graph/town_graph';
 import { createTeamAgent } from './AI/agents/team_agent';
 // 导入消息类型定义 - 用于对话历史
 import { BaseMessage } from './AI/agents/base_agent';
+// 导入MCP CLI管理器 - 用于网络搜索等CLI工具
+import { getMcpCliManager } from './AI/cli/mcp_cli_manager';
+// 导入MCP加载器 - 用于连接MCP服务器
+import { getMcpLoader } from './AI/mcp/lazy_loader';
 
 // 创建Express应用实例
 // Express是一个Web框架，就像是一个工具箱，帮我们快速搭建网站服务器
@@ -88,9 +96,10 @@ class DeepSeekModel {
    * 4. 收到回复后返回给用户
    * 
    * @param messages 消息数组，包含对话历史
-   * @returns 模型的回复内容
+   * @param options 可选参数，包括 tools（工具列表）
+   * @returns 模型的回复内容，可能包含工具调用
    */
-  async invoke(messages: BaseMessage[]): Promise<{ content: string }> {
+  async invoke(messages: BaseMessage[], options?: { tools?: any[] }): Promise<{ content: string; tool_calls?: any[] }> {
     try {
       // 转换消息格式以适应DeepSeek API的要求
       // DeepSeek需要的格式是：{role: 'user', content: '消息内容'}
@@ -110,6 +119,21 @@ class DeepSeekModel {
         return { role, content: msg.content };
       });
 
+      // 构建请求体
+      const requestBody: any = {
+        model: 'deepseek-chat',  // 使用的模型名称
+        messages: formattedMessages,  // 转换后的消息数组
+        temperature: 0.7,  // 温度参数，控制回复的创造性（0-1之间，越高越有创造性）
+        max_tokens: 2000  // 增加最大回复长度，以便能够调用工具
+      };
+
+      // 如果提供了工具列表，添加到请求中
+      if (options?.tools && options.tools.length > 0) {
+        requestBody.tools = options.tools;
+        requestBody.tool_choice = 'auto';  // 让模型自动决定是否调用工具
+        console.log(`[DeepSeek] 传递了 ${options.tools.length} 个工具给 LLM`);
+      }
+
       // 发送API请求到DeepSeek服务器
       // fetch是JavaScript内置的网络请求函数
       const response = await fetch(this.baseUrl, {
@@ -118,12 +142,7 @@ class DeepSeekModel {
           'Content-Type': 'application/json',  // 告诉服务器我们发送的是JSON数据
           'Authorization': `Bearer ${this.apiKey}`  // 带上API密钥进行身份验证
         },
-        body: JSON.stringify({
-          model: 'deepseek-chat',  // 使用的模型名称
-          messages: formattedMessages,  // 转换后的消息数组
-          temperature: 0.7,  // 温度参数，控制回复的创造性（0-1之间，越高越有创造性）
-          max_tokens: 500  // 最大回复长度，限制在500个token以内
-        })
+        body: JSON.stringify(requestBody)
       });
 
       // 检查响应状态
@@ -135,9 +154,22 @@ class DeepSeekModel {
       // 解析响应数据
       // 把服务器返回的JSON字符串转换成JavaScript对象
       const data: any = await response.json();
-      // 返回DeepSeek生成的回复内容
+      
+      // 提取回复内容
+      const message = data.choices[0].message;
+      const content = message.content || '';
+      
+      // 检查是否有工具调用
+      const toolCalls = message.tool_calls || undefined;
+      
+      if (toolCalls && toolCalls.length > 0) {
+        console.log(`[DeepSeek] LLM 决定调用 ${toolCalls.length} 个工具`);
+      }
+      
+      // 返回DeepSeek生成的回复内容和工具调用
       return {
-        content: data.choices[0].message.content
+        content,
+        tool_calls: toolCalls
       };
     } catch (error) {
       // 如果发生错误（比如网络断开、API密钥错误等），记录错误信息
@@ -438,6 +470,134 @@ app.post('/api/teams/task', async (req, res) => {
 });
 
 /**
+ * 使用MCP CLI工具
+ * 提供统一的接口来调用所有已注册的CLI命令
+ */
+app.post('/api/cli/execute', async (req, res) => {
+  try {
+    const data = req.body;
+    const toolName = data.tool_name || '';
+    const params = data.params || {};
+
+    if (!toolName) {
+      return res.status(400).json({ error: '工具名称不能为空' });
+    }
+
+    console.log(`[CLI API] 收到CLI工具调用请求: ${toolName}`);
+    console.log(`[CLI API] 参数:`, params);
+
+    // 获取CLI管理器（已经在启动时初始化）
+    const cliManager = await getMcpCliManager();
+
+    // 检查工具是否已注册
+    if (!cliManager.isCommandRegistered(toolName)) {
+      const availableCommands = cliManager.getRegisteredCommands().map(cmd => cmd.toolName);
+      return res.status(404).json({ 
+        error: `未找到工具: ${toolName}`,
+        available_commands: availableCommands
+      });
+    }
+
+    // 执行CLI命令
+    console.log(`[CLI API] 执行CLI命令: ${toolName}`);
+    const result = await cliManager.executeCliCommand(toolName, params);
+
+    if (result.success) {
+      console.log(`[CLI API] ✓ 命令执行成功`);
+      res.json({
+        success: true,
+        tool_name: toolName,
+        output: result.output
+      });
+    } else {
+      console.error(`[CLI API] ✗ 命令执行失败:`, result.error);
+      res.status(500).json({
+        success: false,
+        tool_name: toolName,
+        error: result.error
+      });
+    }
+  } catch (e) {
+    console.error(`[ERROR] CLI工具调用失败:`, e);
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+/**
+ * 获取所有可用的CLI命令列表
+ */
+app.get('/api/cli/commands', async (req, res) => {
+  try {
+    const cliManager = await getMcpCliManager();
+    const commands = cliManager.getRegisteredCommands();
+    
+    res.json({
+      count: commands.length,
+      commands: commands.map(cmd => ({
+        tool_name: cmd.toolName,
+        description: cmd.description,
+        server_name: cmd.serverName,
+        params_schema: cmd.params
+      }))
+    });
+  } catch (e) {
+    console.error(`[ERROR] 获取CLI命令列表失败:`, e);
+    res.status(500).json({ error: (e as Error).message });
+  }
+});
+
+/**
+ * 初始化MCP CLI工具
+ * 在服务器启动时预加载所有MCP CLI命令
+ */
+async function initializeMcpCli() {
+  try {
+    console.log('[MCP CLI] 开始初始化MCP CLI工具...');
+    
+    // 1. 获取MCP加载器并连接所有配置的服务器
+    const mcpLoader = await getMcpLoader();
+    const { DEFAULT_MCP_SERVERS } = await import('./AI/mcp/lazy_loader');
+    const configuredServers = Object.keys(DEFAULT_MCP_SERVERS);
+    
+    console.log(`[MCP CLI] 发现 ${configuredServers.length} 个配置的MCP服务器:`, configuredServers);
+    
+    // 2. 连接到所有配置的服务器
+    for (const serverName of configuredServers) {
+      try {
+        console.log(`[MCP CLI] 正在连接服务器: ${serverName}`);
+        const client = await mcpLoader.getClient(serverName);
+        if (client) {
+          const tools = await client.listTools();
+          console.log(`[MCP CLI] ✓ 成功连接到 ${serverName}，发现 ${tools.length} 个工具`);
+          tools.forEach((tool: any) => {
+            console.log(`     - ${tool.name}: ${tool.description.substring(0, 60)}...`);
+          });
+        }
+      } catch (error) {
+        console.warn(`[MCP CLI] ✗ 连接服务器 ${serverName} 失败:`, error instanceof Error ? error.message : String(error));
+      }
+    }
+    
+    // 3. 获取CLI管理器（这会自动预加载所有已连接服务器的工具）
+    console.log('[MCP CLI] 初始化CLI管理器...');
+    const cliManager = await getMcpCliManager();
+    
+    // 4. 显示已注册的CLI命令
+    const registeredCommands = cliManager.getRegisteredCommands();
+    console.log(`[MCP CLI] ✓ 已注册 ${registeredCommands.length} 个CLI命令:`);
+    registeredCommands.forEach(cmd => {
+      console.log(`     - ${cmd.toolName} (${cmd.serverName})`);
+    });
+    
+    console.log('[MCP CLI] MCP CLI工具初始化完成\n');
+    return true;
+  } catch (error) {
+    console.error('[MCP CLI] MCP CLI工具初始化失败:', error);
+    return false;
+  }
+}
+
+/**
  * 初始化小镇
  */
 async function initializeTown() {
@@ -536,8 +696,12 @@ async function startServer() {
       process.exit(1);
     }
 
+    // 初始化MCP CLI工具（预加载所有CLI命令）
+    console.log("\n=== 初始化MCP CLI工具 ===");
+    await initializeMcpCli();
+
     // 初始化小镇
-    console.log("初始化小镇...");
+    console.log("\n=== 初始化小镇 ===");
     try {
       await initializeTown();
       console.log("小镇初始化成功！");
@@ -554,9 +718,9 @@ async function startServer() {
       process.exit(1);
     }
 
-    console.log(`赛博小镇 V2 服务器启动在 http://0.0.0.0:${PORT}`);
+    console.log(`\n赛博小镇 V2 服务器启动在 http://0.0.0.0:${PORT}`);
     console.log(`前端页面: http://localhost:${PORT}`);
-    console.log("按 Ctrl+C 停止服务器");
+    console.log("按 Ctrl+C 停止服务器\n");
 
     // 启动服务器
     app.listen(PORT, '0.0.0.0', () => {

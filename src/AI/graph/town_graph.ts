@@ -24,7 +24,7 @@ import { BaseMessage, HumanMessage, AIMessage, BaseAgent, createBaseAgent } from
 // AgentGraph: 智能体图谱，处理单个智能体的对话逻辑
 import { AgentGraph } from './agent_graph';
 // DualMemorySystem: 双重记忆系统（短期记忆+长期记忆）
-import { DualMemorySystem, createMemorySystem } from '../memory/dual_memory';
+import { DualMemorySystem, createMemorySystem } from '../memory/storage/dual_memory';
 // DEFAULT_PROFILES: 8个默认角色的配置
 import { DEFAULT_PROFILES } from '../agents/models';
 // getSkillRegistry: 获取技能注册表

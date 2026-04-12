@@ -6,10 +6,10 @@
 // 导入必要的类型和类
 import { LongTermMemoryInterface, MemoryItem, MemoryItemImpl } from './dual_memory';
 import { ChromaClient, Collection } from 'chromadb';
-import { QwenEmbedding } from './modules/embedding';
-import { TextChunker } from './modules/text_chunker';
-import { QuestionRewriter } from './modules/question_rewriter';
-import { Reranker } from './modules/reranker';
+import { QwenEmbedding } from '../modules/embedding';
+import { TextChunker } from '../modules/text_chunker';
+import { QuestionRewriter } from '../modules/question_rewriter';
+import { Reranker } from '../modules/reranker';
 
 /**
  * ChromaLongTermMemory类 - 使用ChromaDB向量数据库存储长期记忆
