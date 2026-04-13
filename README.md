@@ -417,46 +417,8 @@ npm test -- memory/compression.test.ts
 - [ ] Docker 部署
 
 ---
-
-## 🤝 贡献指南
-
-欢迎贡献代码、报告问题或提出建议！
-
-1. Fork 本仓库
-2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交更改 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 开启 Pull Request
-
-请确保：
-- 代码符合 TypeScript 规范
-- 添加必要的单元测试
-- 更新相关文档
-
----
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 详见 [LICENSE](LICENSE) 文件
-
----
-
-## 👥 团队
-
-赛博小镇由 CyberTown Team 开发和维护。
-
----
-
-## 🙏 致谢
-
-感谢以下开源项目的支持：
-
-- [LangChain](https://github.com/langchain-ai/langchain) - LLM 应用开发框架
-- [LangGraph](https://github.com/langchain-ai/langgraph) - 状态图编排
-- [ChromaDB](https://github.com/chroma-core/chroma) - 向量数据库
-- [MCP](https://modelcontextprotocol.io/) - Model Context Protocol
-
----
+## 待做事项
+- MCP：考虑一下是先加载他的元数据(也就是skill形式)，然后扫描到了全部加载。还是说现在的放在skill里面再加载。
 
 <div align="center">
 
